@@ -1,7 +1,7 @@
 FROM node:20-alpine AS base
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --ignore-scripts
+COPY package.json ./
+RUN npm install --legacy-peer-deps --no-audit --no-fund
 
 FROM base AS builder
 COPY . .
@@ -10,12 +10,11 @@ RUN npm run build
 FROM node:20-alpine AS production
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts
+COPY package.json ./
+RUN npm install --omit=dev --legacy-peer-deps --no-audit --no-fund
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/shared ./shared
-COPY --from=builder /app/server/seed-data.ts ./server/seed-data.ts
 
 RUN mkdir -p /app/uploads
 
