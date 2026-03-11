@@ -1,0 +1,27 @@
+node_modules
+dist
+.git
+.local
+.cache
+.upm
+.agents
+.config
+uploads
+attached_assets
+
+# Large root-level screenshots and reference files (not needed for build)
+admin_dashboard.png
+add_content_tab.png
+fan_engagement_verified.png
+fanwall_filled.png
+header-final.png
+header-light.png
+header-logo.png
+checkout-final.png
+post-pay-poll.png
+project-dna-dark.png
+project-dna-light.png
+index-css-FUTURISTIC.css
+project-dna-migration.zip
+seed-production.sql
+zivY2XnG
