@@ -15,22 +15,18 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
-  // Dynamic imports so vite is never loaded in production
+  // Dynamic imports so vite is NEVER loaded in production builds.
+  // Do NOT import vite.config here — esbuild would bundle it and pull in
+  // static "import from 'vite'" statements that fail at runtime in production.
+  // Instead, pass configFile: undefined so Vite auto-discovers vite.config.ts.
   const { createServer: createViteServer, createLogger } = await import("vite");
-  const { default: viteConfig } = await import("../vite.config");
   const { nanoid } = await import("nanoid");
 
   const viteLogger = createLogger();
 
-  const serverOptions = {
-    middlewareMode: true,
-    hmr: { server },
-    allowedHosts: true as const,
-  };
-
   const vite = await createViteServer({
-    ...viteConfig,
-    configFile: false,
+    // Let Vite find vite.config.ts on its own — do NOT spread viteConfig here
+    configFile: undefined,
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
@@ -38,7 +34,11 @@ export async function setupVite(app: Express, server: Server) {
         process.exit(1);
       },
     },
-    server: serverOptions,
+    server: {
+      middlewareMode: true,
+      hmr: { server },
+      allowedHosts: true as const,
+    },
     appType: "custom",
   });
 
@@ -79,7 +79,6 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });
