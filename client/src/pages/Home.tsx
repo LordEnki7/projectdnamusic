@@ -217,16 +217,14 @@ export default function Home() {
 
           <div className="grid md:grid-cols-2 gap-8">
             <div className="space-y-4 group">
-              <div className="relative rounded-2xl overflow-hidden bg-card/30 backdrop-blur-sm border border-chart-2/20 hover-elevate">
-                <video 
-                  controls 
-                  className="w-full aspect-video object-cover"
-                  poster="/public-objects/album cover main_1759608641741.jpg"
+              <div className="relative rounded-2xl overflow-hidden bg-card/30 backdrop-blur-sm border border-chart-2/20 hover-elevate aspect-video">
+                <iframe
+                  src="https://www.youtube.com/embed/H8nTDqM77eI?rel=0"
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
                   data-testid="video-countyline-promo"
-                >
-                  <source src="/attached_assets/Shakim & Project DNA CountyLine rd 2_1760067148148.mp4" type="video/mp4" />
-                  Your browser does not support the video tag.
-                </video>
+                />
               </div>
               <div className="space-y-2">
                 <h3 className="font-display font-bold text-2xl text-chart-2">CountyLine Rd</h3>
@@ -235,16 +233,16 @@ export default function Home() {
             </div>
 
             <div className="space-y-4 group">
-              <div className="relative rounded-2xl overflow-hidden bg-card/30 backdrop-blur-sm border border-primary/20 hover-elevate">
-                <video 
-                  controls 
-                  className="w-full aspect-video object-cover"
-                  poster="/public-objects/IMG_7505_1759608664248.jpg"
-                  data-testid="video-concert"
-                >
-                  <source src="/attached_assets/Shakim & Project DNA Concert_1760067148146.mp4" type="video/mp4" />
-                  Your browser does not support the video tag.
-                </video>
+              <div className="relative rounded-2xl overflow-hidden bg-card/30 backdrop-blur-sm border border-primary/20 hover-elevate aspect-video flex items-center justify-center">
+                <div className="text-center space-y-3 p-8">
+                  <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto">
+                    <svg className="h-8 w-8 text-primary" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z"/>
+                    </svg>
+                  </div>
+                  <p className="font-display font-bold text-lg text-primary">Coming Soon to YouTube</p>
+                  <p className="text-sm text-muted-foreground">Live Concert Experience dropping soon</p>
+                </div>
               </div>
               <div className="space-y-2">
                 <h3 className="font-display font-bold text-2xl text-primary">Live Concert Experience</h3>
