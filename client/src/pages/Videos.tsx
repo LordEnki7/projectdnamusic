@@ -36,12 +36,6 @@ export default function Videos() {
       videoSrc: 'https://www.youtube.com/watch?v=wZk7Kb9jx58',
     },
     {
-      id: 'highlight-of-my-life',
-      title: 'Highlight of My Life',
-      subtitle: 'An Uplifting Visual Journey',
-      videoSrc: 'https://www.youtube.com/watch?v=i5p1c5SbPQQ',
-    },
-    {
       id: 'dreadlocks-on-the-road',
       title: 'Dreadlocks on the Road',
       subtitle: 'Life Journey Visuals – Coming Soon to YouTube',
