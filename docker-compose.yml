@@ -2,7 +2,11 @@ version: "3.9"
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_STRIPE_PUBLIC_KEY: ${VITE_STRIPE_PUBLIC_KEY}
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -31,22 +35,5 @@ services:
     volumes:
       - uploads_data:/app/uploads
 
-  # Optional: self-hosted PostgreSQL
-  # Uncomment if you want to run the database on the same server.
-  # Otherwise, point DATABASE_URL at your external Neon / Hostinger DB.
-  #
-  # db:
-  #   image: postgres:16-alpine
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: projectdna
-  #     POSTGRES_USER: projectdna
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   ports:
-  #     - "5432:5432"
-
 volumes:
   uploads_data:
-  # postgres_data:
