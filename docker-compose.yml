@@ -20,7 +20,4 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LOCAL_STORAGE_PATH: /app/uploads
     volumes:
-      - uploads_data:/app/uploads
-
-volumes:
-  uploads_data:
+      - /opt/pdna/uploads:/app/uploads
