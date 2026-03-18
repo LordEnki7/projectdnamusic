@@ -1,40 +1,23 @@
-FROM node:20-alpine AS base
+FROM node:20-slim
+
 WORKDIR /app
 
-# Override .npmrc to ensure clean install in Docker
-RUN echo "prefer-offline=false" > .npmrc && \
-    echo "legacy-peer-deps=true" >> .npmrc && \
-    echo "fund=false" >> .npmrc && \
-    echo "audit=false" >> .npmrc
-
+# Copy package files
 COPY package.json ./
-RUN npm install --legacy-peer-deps --no-audit --no-fund
 
-FROM base AS builder
-WORKDIR /app
+# Install all dependencies (dev + prod needed for build)
+RUN npm install --legacy-peer-deps --no-audit --no-fund --prefer-online
 
-# Accept Vite env vars as build args so frontend gets them embedded
-ARG VITE_STRIPE_PUBLIC_KEY
-ENV VITE_STRIPE_PUBLIC_KEY=$VITE_STRIPE_PUBLIC_KEY
-
+# Copy source code
 COPY . .
+
+# Build frontend and backend
 RUN npm run build
 
-FROM node:20-alpine AS production
-WORKDIR /app
+# Remove dev dependencies after build
+RUN npm prune --production --legacy-peer-deps
 
-# Override .npmrc for production install
-RUN echo "prefer-offline=false" > .npmrc && \
-    echo "legacy-peer-deps=true" >> .npmrc && \
-    echo "fund=false" >> .npmrc && \
-    echo "audit=false" >> .npmrc
-
-COPY package.json ./
-RUN npm install --omit=dev --legacy-peer-deps --no-audit --no-fund
-
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/shared ./shared
-
+# Create uploads directory
 RUN mkdir -p /app/uploads
 
 EXPOSE 5000

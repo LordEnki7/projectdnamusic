@@ -2,11 +2,7 @@ version: "3.9"
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        VITE_STRIPE_PUBLIC_KEY: ${VITE_STRIPE_PUBLIC_KEY}
+    build: .
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -16,22 +12,13 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       SESSION_SECRET: ${SESSION_SECRET}
       APP_URL: ${APP_URL}
-
-      # Stripe
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       VITE_STRIPE_PUBLIC_KEY: ${VITE_STRIPE_PUBLIC_KEY}
-
-      # Email (Resend)
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL}
-
-      # OpenAI
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-
-      # Local file storage path (inside container)
       LOCAL_STORAGE_PATH: /app/uploads
-
     volumes:
       - uploads_data:/app/uploads
 
