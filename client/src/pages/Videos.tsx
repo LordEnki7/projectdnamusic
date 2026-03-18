@@ -14,32 +14,38 @@ export default function Videos() {
       id: 'countyline-rd',
       title: 'CountyLine Rd',
       subtitle: 'A Sonic Adventure - Featured Single from The Great Attractor',
-      videoSrc: '/attached_assets/Shakim & Project DNA\'s Latest Track_ Journey Across CountyLine Rd - A Sonic Adventure Awaits!_1759608274658.mp4',
+      videoSrc: 'https://www.youtube.com/watch?v=H8nTDqM77eI',
       featured: true,
     },
     {
       id: 'at-the-end-of-the-day',
       title: 'At the End of the Day',
       subtitle: 'Lyric Video – An Emotional Journey Through Music',
-      videoSrc: '/attached_assets/Shakim & Project DNA Unveil \'At the End of the Day\' Lyric Video – An Emotional Journey Through Music_1759608283465.mp4',
+      videoSrc: 'https://www.youtube.com/watch?v=Yboyijtdwz8',
     },
     {
       id: 'all-for-you',
       title: 'All For You',
       subtitle: 'A Heartfelt Anthem for All Ages',
-      videoSrc: '/attached_assets/Shakim & Project DNA Unveil \'All For You\'_ A Heartfelt Anthem for All Ages_1759608289123.mp4',
+      videoSrc: 'https://www.youtube.com/watch?v=HNwcj42aLjg',
     },
     {
       id: 'make-it-alright',
       title: 'Make It Alright',
       subtitle: 'The Anthem of Hope and Resilience',
-      videoSrc: '/attached_assets/Shakim & Project DNA Drop \'Make It Alright\'_ The Anthem of Hope and Resilience_1759608294420.mp4',
+      videoSrc: 'https://www.youtube.com/watch?v=wZk7Kb9jx58',
+    },
+    {
+      id: 'highlight-of-my-life',
+      title: 'Highlight of My Life',
+      subtitle: 'An Uplifting Visual Journey',
+      videoSrc: 'https://www.youtube.com/watch?v=i5p1c5SbPQQ',
     },
     {
       id: 'dreadlocks-on-the-road',
       title: 'Dreadlocks on the Road',
-      subtitle: 'Life Journey Visuals',
-      videoSrc: '/attached_assets/20250508_1950_Dreadlocks on the Road_simple_compose_01jts4y2sxfmrsq1k46jnn3zj2 (1)_1759608189184.mp4',
+      subtitle: 'Life Journey Visuals – Coming Soon to YouTube',
+      videoSrc: '',
     },
   ];
 
@@ -48,7 +54,7 @@ export default function Videos() {
       id: 'move-forward',
       title: 'Move Forward',
       subtitle: 'Official Music Video - Exclusive for DNA Family Members',
-      videoSrc: '/attached_assets/Project DNA ft Shakim - Move Forward_1759907121275.mp4',
+      videoSrc: '',
       exclusive: true,
     },
   ];
@@ -62,7 +68,7 @@ export default function Videos() {
               <Film className="h-8 w-8 text-primary-foreground" />
             </div>
           </div>
-          
+
           <div className="space-y-4">
             <h1 className="font-display font-black text-4xl md:text-6xl">
               <span className="bg-gradient-to-r from-primary via-chart-3 to-chart-2 bg-clip-text text-transparent">
