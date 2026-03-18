@@ -1,7 +1,7 @@
 import AnimatedLogo from '@/components/AnimatedLogo';
 
-const albumCover = '/public-objects/album cover main_1759608641741.jpg';
-const artistPhoto = '/public-objects/IMG_7505_1759608664248.jpg';
+const albumCover = '/media/images/album-cover-main.jpg';
+const artistPhoto = '/media/images/artist-photo.jpg';
 
 export default function About() {
   return (

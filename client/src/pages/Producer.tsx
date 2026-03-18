@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Beat } from '@shared/schema';
 import { useLocation } from 'wouter';
 
-const plaqueImg = '/public-objects/plaque_1759900718110.jpeg';
+const plaqueImg = '/media/images/plaque.jpeg';
 
 export default function Producer() {
   const [, setLocation] = useLocation();

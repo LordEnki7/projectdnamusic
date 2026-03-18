@@ -9,7 +9,7 @@ import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import type { Song } from '@shared/schema';
 
-const albumCover = '/public-objects/album cover main_1759608641741.jpg';
+const albumCover = '/media/images/album-cover-main.jpg';
 
 export default function Music() {
   const [searchQuery, setSearchQuery] = useState('');

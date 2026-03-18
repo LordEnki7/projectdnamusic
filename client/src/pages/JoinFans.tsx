@@ -4,17 +4,17 @@ import { Music2, Mail, Gift, Sparkles, Radio, Users, Lock } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
 
-const iForgiveYouCover = "/public-objects/I Forgive You Album Cover_1759713682770.jpg";
-const atTheEndCover = "/public-objects/At The End Of The Day Album Cover_1759713775644.jpg";
-const makeItAlrightCover = "/public-objects/Make it alright_New Image_1759905290010.jpg";
-const highlightCover = "/public-objects/Highlight_Project_1759713921043.png";
-const shakimSingleCover = "/public-objects/Shakim_Single_1759713940884.jpg";
-const moveForwardCover = "/public-objects/Move Forward cover art II_1759713959735.jpg";
-const greatAttractorCover = "/public-objects/album cover main_1759714013056.jpg";
-const forTheLoveOfFreedomCover = "/public-objects/Copy of Album Cover_1759903781480.jpg";
-const allForYouCover = "/public-objects/All For You_1759903815011.jpg";
-const countrylineRdCover = "/public-objects/Mockup (4)_1759903926077.jpg";
-const iAmHumanCover = "/public-objects/i am human Album_1759904737446.png";
+const iForgiveYouCover = "/media/images/album-i-forgive-you.jpg";
+const atTheEndCover = "/media/images/album-at-the-end.jpg";
+const makeItAlrightCover = "/media/images/album-make-it-alright.jpg";
+const highlightCover = "/media/images/album-highlight.png";
+const shakimSingleCover = "/media/images/album-shakim-single.jpg";
+const moveForwardCover = "/media/images/album-move-forward.jpg";
+const greatAttractorCover = "/media/images/album-great-attractor-2.jpg";
+const forTheLoveOfFreedomCover = "/media/images/album-freedom.jpg";
+const allForYouCover = "/media/images/album-all-for-you.jpg";
+const countrylineRdCover = "/media/images/album-countyline-mockup.jpg";
+const iAmHumanCover = "/media/images/album-i-am-human.png";
 
 export default function JoinFans() {
   const { user } = useAuth();
