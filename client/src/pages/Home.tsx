@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { useRef } from 'react';
 const dnaMovingVideo = '/media/dna-strand.mp4';
 
-const dnaStrandImg = '/public-objects/DNA_Strand5_1759608831146.jpg';
+const dnaStrandImg = '/media/images/dna-strand.jpg';
 
 export default function Home() {
   const { user } = useAuth();

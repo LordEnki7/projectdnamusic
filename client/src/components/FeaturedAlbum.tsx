@@ -5,13 +5,13 @@ import { Link } from 'wouter';
 import { useState, useRef, useEffect } from 'react';
 import { useAudioContext } from '@/lib/AudioContext';
 
-const albumCover = '/public-objects/album cover main_1759608641741.jpg';
-const countylineArt = '/public-objects/Countryline Rd.1_1759608651598.jpg';
+const albumCover = '/media/images/album-cover-main.jpg';
+const countylineArt = '/media/images/countyline-cover.jpg';
 
 export default function FeaturedAlbum() {
   const [isPlaying, setIsPlaying] = useState(false);
   const { audioElement, currentSongId, setCurrentSong } = useAudioContext();
-  const countylineAudioUrl = "/public-objects/5 - Shakim & Project DNA - CountyLine Rd_1759614469273.wav";
+  const countylineAudioUrl = "/public-objects/songs/5%20-%20Shakim%20%26%20Project%20DNA%20-%20CountyLine%20Rd.wav";
   const featuredSongId = "featured-countyline-rd";
 
   useEffect(() => {
