@@ -3494,6 +3494,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // NIG Command Center — Division Status Endpoint
+  const { nigStatusHandler } = await import("./nig-status");
+  app.get("/api/nig-status", nigStatusHandler);
+
   registerAIAgentRoutes(app);
 
   const httpServer = createServer(app);
