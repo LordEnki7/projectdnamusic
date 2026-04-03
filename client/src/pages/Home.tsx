@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import FeaturedAlbum from '@/components/FeaturedAlbum';
 import ArtistMessage from '@/components/ArtistMessage';
+import RadioWidget from '@/components/RadioWidget';
 import { Music, ShoppingBag, Sparkles, Zap, Gift, Lock, Heart } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useRef } from 'react';
@@ -109,6 +110,12 @@ export default function Home() {
       </section>
 
       <ArtistMessage />
+
+      <section className="py-6 px-4">
+        <div className="max-w-md mx-auto">
+          <RadioWidget />
+        </div>
+      </section>
 
       <section className="py-24 px-4 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-chart-2/10" />

@@ -1008,6 +1008,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ PLAYLIST ENDPOINTS ============
   
+  // DNA Radio - synchronized now-playing calculation
+  app.get("/api/radio/now-playing", async (req, res) => {
+    try {
+      const allSongs = await db.select().from(songs).orderBy(asc(songs.trackNumber));
+      if (allSongs.length === 0) return res.json({ song: null });
+
+      const DEFAULT_SLOT = 240; // seconds per song if no duration
+      const slots = allSongs.map(s => ({ song: s, slotDuration: s.duration || DEFAULT_SLOT }));
+      const totalCycle = slots.reduce((acc, s) => acc + s.slotDuration, 0);
+
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const posInCycle = nowSeconds % totalCycle;
+
+      let elapsed = 0;
+      let currentSlot = slots[0];
+      for (const slot of slots) {
+        if (posInCycle < elapsed + slot.slotDuration) {
+          currentSlot = slot;
+          break;
+        }
+        elapsed += slot.slotDuration;
+      }
+
+      const positionInSong = posInCycle - elapsed;
+      const secondsUntilNext = currentSlot.slotDuration - positionInSong;
+
+      res.json({
+        song: currentSlot.song,
+        positionSeconds: positionInSong,
+        slotDurationSeconds: currentSlot.slotDuration,
+        secondsUntilNext,
+        totalSongs: allSongs.length,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to compute radio state" });
+    }
+  });
+
   // Get user's playlists
   app.get("/api/playlists", async (req, res) => {
     try {

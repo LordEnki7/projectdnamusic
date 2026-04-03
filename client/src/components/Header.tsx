@@ -64,6 +64,7 @@ export default function Header() {
     { href: '/about', label: 'About' },
     { href: '/music', label: 'Featured' },
     { href: '/catalog', label: 'Catalog' },
+    { href: '/radio', label: 'Radio' },
     { href: '/videos', label: 'Videos' },
     { href: '/fan-wall', label: 'Fan Wall' },
     { href: '/producer', label: 'Producer' },
