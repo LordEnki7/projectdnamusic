@@ -1,58 +1,52 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'wouter';
+import { useToast } from '@/hooks/use-toast';
+import { useForm } from 'react-hook-form';
 import {
   Radio, Play, Pause, Volume2, VolumeX, SkipForward, SkipBack,
-  Music, ListMusic, Disc3, Wifi, WifiOff, ChevronRight, Lock
+  Music, ListMusic, Disc3, Wifi, WifiOff, ChevronRight, Lock,
+  Mic2, Send, CheckCircle
 } from 'lucide-react';
 
 interface NowPlayingData {
-  song: {
-    id: string;
-    title: string;
-    artist: string;
-    album: string | null;
-    audioUrl: string;
-    coverArt: string | null;
-    duration: number | null;
+  type: 'song' | 'bumper';
+  song?: {
+    id: string; title: string; artist: string; album: string | null;
+    audioUrl: string; coverArt: string | null; duration: number | null;
   } | null;
+  bumper?: { id: number; title: string; audioUrl: string } | null;
   positionSeconds: number;
   slotDurationSeconds: number;
   secondsUntilNext: number;
   totalSongs: number;
 }
 
+interface Bumper { id: number; title: string; audioUrl: string; isActive: number; }
+
 interface PlaylistSong {
-  songId: string;
-  title: string;
-  artist: string;
-  album: string | null;
-  audioUrl: string;
-  coverArt: string | null;
-  duration: number;
-  position: number;
+  songId: string; title: string; artist: string; album: string | null;
+  audioUrl: string; coverArt: string | null; duration: number; position: number;
 }
+interface Playlist { id: string; name: string; description: string | null; isPublic: boolean; }
 
-interface Playlist {
-  id: string;
-  name: string;
-  description: string | null;
-  isPublic: boolean;
-}
-
-function WaveformBars({ playing }: { playing: boolean }) {
+function WaveformBars({ playing, color = 'purple' }: { playing: boolean; color?: string }) {
+  const colorClass = color === 'cyan' ? 'bg-cyan-400' : 'bg-purple-400';
   return (
     <div className="flex items-end gap-0.5 h-8">
       {Array.from({ length: 20 }).map((_, i) => (
         <div
           key={i}
-          className="w-1 rounded-full bg-purple-400 opacity-80"
+          className={`w-1 rounded-full ${colorClass} opacity-80`}
           style={{
-            height: playing ? `${Math.random() * 100 + 20}%` : '20%',
+            height: '20%',
             animation: playing ? `wave ${0.5 + (i % 5) * 0.15}s ease-in-out infinite alternate` : 'none',
             animationDelay: `${i * 0.05}s`,
           }}
@@ -75,52 +69,51 @@ function DNARadioPlayer() {
   const [volume, setVolume] = useState(0.85);
   const [connected, setConnected] = useState(false);
   const [localPosition, setLocalPosition] = useState(0);
+  const [isBumper, setIsBumper] = useState(false);
   const positionRef = useRef(0);
   const syncIntervalRef = useRef<number | null>(null);
   const tickIntervalRef = useRef<number | null>(null);
 
   const { data, refetch } = useQuery<NowPlayingData>({
     queryKey: ['/api/radio/now-playing'],
-    refetchInterval: false,
-    staleTime: 0,
+    refetchInterval: false, staleTime: 0,
   });
 
-  const song = data?.song;
+  const song = data?.type === 'song' ? data.song : null;
+  const bumper = data?.type === 'bumper' ? data.bumper : null;
+  const displayTitle = isBumper ? (bumper?.title || 'Station Break') : (song?.title || 'Tune In to Start');
+  const displayArtist = isBumper ? 'DNA Radio' : (song?.artist || 'Project DNA');
+  const coverArt = song?.coverArt;
 
   const syncToStation = useCallback(async () => {
     const result = await refetch();
     const np = result.data;
-    if (!np?.song || !audioRef.current) return;
-
+    if (!np || !audioRef.current) return;
     const audio = audioRef.current;
-    if (audio.src !== np.song.audioUrl) {
-      audio.src = np.song.audioUrl;
+    const audioUrl = np.type === 'bumper' ? np.bumper?.audioUrl : np.song?.audioUrl;
+    if (!audioUrl) return;
+    setIsBumper(np.type === 'bumper');
+
+    if (audio.src !== audioUrl) {
+      audio.src = audioUrl;
       audio.load();
     }
-
     audio.volume = isMuted ? 0 : volume;
 
     const seek = () => {
-      if (audio.seekable.length > 0 || audio.readyState >= 2) {
-        const target = Math.min(np.positionSeconds, audio.duration || np.positionSeconds);
-        audio.currentTime = target;
-        positionRef.current = target;
-        setLocalPosition(target);
-        audio.play().then(() => { setIsPlaying(true); setConnected(true); }).catch(() => {});
-      }
+      const target = np.type === 'bumper' ? Math.min(np.positionSeconds, audio.duration || np.positionSeconds)
+        : Math.min(np.positionSeconds, audio.duration || np.positionSeconds);
+      audio.currentTime = target;
+      positionRef.current = target;
+      setLocalPosition(target);
+      audio.play().then(() => { setIsPlaying(true); setConnected(true); }).catch(() => {});
     };
-
-    if (audio.readyState >= 2) {
-      seek();
-    } else {
-      audio.addEventListener('canplay', seek, { once: true });
-    }
+    if (audio.readyState >= 2) seek();
+    else audio.addEventListener('canplay', seek, { once: true });
   }, [refetch, volume, isMuted]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = isMuted ? 0 : volume;
+    if (audioRef.current) audioRef.current.volume = isMuted ? 0 : volume;
   }, [volume, isMuted]);
 
   useEffect(() => {
@@ -134,6 +127,14 @@ function DNARadioPlayer() {
     }
     return () => { if (tickIntervalRef.current) clearInterval(tickIntervalRef.current); };
   }, [isPlaying]);
+
+  // Auto re-sync when slot ends
+  useEffect(() => {
+    if (!connected || !data) return;
+    const ms = data.secondsUntilNext * 1000 + 500;
+    const t = setTimeout(() => syncToStation(), ms);
+    return () => clearTimeout(t);
+  }, [data, connected, syncToStation]);
 
   const handleTuneIn = () => {
     if (connected && isPlaying) {
@@ -152,106 +153,81 @@ function DNARadioPlayer() {
   return (
     <div className="relative rounded-2xl overflow-hidden border border-purple-500/30 bg-black/60 backdrop-blur-xl">
       <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-black/60 to-cyan-900/20 pointer-events-none" />
-
       <div className="relative p-8 md:p-12">
         <div className="flex items-center gap-3 mb-8">
           <div className="relative">
             <Radio className="w-6 h-6 text-purple-400" />
-            {connected && isPlaying && (
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
-            )}
+            {connected && isPlaying && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />}
           </div>
-          <span className="text-purple-300 font-bold tracking-widest text-sm uppercase font-mono">
-            DNA Radio — Live Station
-          </span>
+          <span className="text-purple-300 font-bold tracking-widest text-sm uppercase font-mono">DNA Radio — Live Station</span>
           <Badge variant="outline" className="ml-auto border-purple-500/50 text-purple-300 text-xs">
-            {connected && isPlaying ? (
-              <span className="flex items-center gap-1"><Wifi className="w-3 h-3" /> On Air</span>
-            ) : (
-              <span className="flex items-center gap-1"><WifiOff className="w-3 h-3" /> Offline</span>
-            )}
+            {connected && isPlaying
+              ? <span className="flex items-center gap-1"><Wifi className="w-3 h-3" /> On Air</span>
+              : <span className="flex items-center gap-1"><WifiOff className="w-3 h-3" /> Offline</span>}
           </Badge>
         </div>
+
+        {isBumper && connected && (
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-900/30 border border-purple-500/30">
+            <Mic2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
+            <span className="text-purple-300 text-sm font-mono">Station break — back to music shortly</span>
+          </div>
+        )}
 
         <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
           <div className="relative flex-shrink-0">
             <div className="w-48 h-48 md:w-56 md:h-56 rounded-xl overflow-hidden border border-purple-500/30 bg-purple-900/20">
-              {song?.coverArt ? (
-                <img src={song.coverArt} alt={song.title} className="w-full h-full object-cover" />
+              {coverArt && !isBumper ? (
+                <img src={coverArt} alt={displayTitle} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
-                  <Disc3 className={`w-20 h-20 text-purple-500/50 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '4s' }} />
+                  {isBumper
+                    ? <Mic2 className="w-20 h-20 text-purple-400/50" />
+                    : <Disc3 className={`w-20 h-20 text-purple-500/50 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '4s' }} />}
                 </div>
               )}
             </div>
-            {connected && isPlaying && (
-              <div className="absolute inset-0 rounded-xl ring-2 ring-purple-500/60 animate-pulse pointer-events-none" />
-            )}
+            {connected && isPlaying && <div className="absolute inset-0 rounded-xl ring-2 ring-purple-500/60 animate-pulse pointer-events-none" />}
           </div>
 
           <div className="flex-1 min-w-0 text-center md:text-left">
-            <p className="text-xs text-slate-500 uppercase tracking-widest mb-1 font-mono">Now Playing</p>
-            <h2 className="text-2xl md:text-3xl font-bold text-white truncate font-display">
-              {song?.title || 'Tune In to Start'}
-            </h2>
-            <p className="text-purple-300 mt-1 truncate">{song?.artist || 'Project DNA'}</p>
-            {song?.album && <p className="text-slate-500 text-sm mt-0.5 truncate">{song.album}</p>}
+            <p className="text-xs text-slate-500 uppercase tracking-widest mb-1 font-mono">{isBumper ? 'Station Break' : 'Now Playing'}</p>
+            <h2 className="text-2xl md:text-3xl font-bold text-white truncate font-display">{displayTitle}</h2>
+            <p className="text-purple-300 mt-1 truncate">{displayArtist}</p>
+            {!isBumper && song?.album && <p className="text-slate-500 text-sm mt-0.5 truncate">{song.album}</p>}
 
             <div className="mt-6">
               <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mb-2">
                 <span>{formatTime(localPosition)}</span>
                 <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full transition-all duration-1000"
-                    style={{ width: `${Math.min((localPosition / slotDuration) * 100, 100)}%` }}
-                  />
+                  <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.min((localPosition / slotDuration) * 100, 100)}%` }} />
                 </div>
                 <span>{formatTime(slotDuration)}</span>
               </div>
-
-              <div className="mt-4">
-                <WaveformBars playing={isPlaying} />
-              </div>
+              <WaveformBars playing={isPlaying} />
             </div>
 
             <div className="flex items-center gap-4 mt-6 flex-wrap justify-center md:justify-start">
-              <Button
-                onClick={handleTuneIn}
-                data-testid="button-radio-tune-in"
-                className="px-8 bg-gradient-to-r from-purple-600 to-cyan-600 text-white border-0"
-              >
-                {connected && isPlaying ? (
-                  <><Pause className="w-4 h-4 mr-2" />Disconnect</>
-                ) : (
-                  <><Play className="w-4 h-4 mr-2" />Tune In</>
-                )}
+              <Button onClick={handleTuneIn} data-testid="button-radio-tune-in"
+                className="px-8 bg-gradient-to-r from-purple-600 to-cyan-600 text-white border-0">
+                {connected && isPlaying
+                  ? <><Pause className="w-4 h-4 mr-2" />Disconnect</>
+                  : <><Play className="w-4 h-4 mr-2" />Tune In</>}
               </Button>
-
               <div className="flex items-center gap-2">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setIsMuted(m => !m)}
-                  data-testid="button-radio-mute"
-                >
+                <Button size="icon" variant="ghost" onClick={() => setIsMuted(m => !m)} data-testid="button-radio-mute">
                   {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                 </Button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={isMuted ? 0 : volume}
+                <input type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume}
                   onChange={e => { setVolume(parseFloat(e.target.value)); setIsMuted(false); }}
-                  className="w-20 accent-purple-500"
-                  data-testid="input-radio-volume"
-                />
+                  className="w-20 accent-purple-500" data-testid="input-radio-volume" />
               </div>
             </div>
 
             {data && (
               <p className="text-xs text-slate-600 mt-4 font-mono">
-                Next song in ~{formatTime(data.secondsUntilNext)} · {data.totalSongs} songs in rotation
+                {isBumper ? `Back to music in ~${formatTime(data.secondsUntilNext)}` : `Next in ~${formatTime(data.secondsUntilNext)}`} · {data.totalSongs} songs in rotation
               </p>
             )}
           </div>
@@ -265,25 +241,51 @@ function DNARadioPlayer() {
 function MyStationPlayer() {
   const { user } = useAuth();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const bumperAudioRef = useRef<HTMLAudioElement>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBumperPlaying, setIsBumperPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const [currentTime, setCurrentTime] = useState(0);
+  const songsSinceBumperRef = useRef(0);
 
-  const { data: playlists = [] } = useQuery<Playlist[]>({
-    queryKey: ['/api/playlists'],
-    enabled: !!user,
-  });
-
+  const { data: playlists = [] } = useQuery<Playlist[]>({ queryKey: ['/api/playlists'], enabled: !!user });
+  const { data: bumpers = [] } = useQuery<Bumper[]>({ queryKey: ['/api/radio/bumpers'] });
   const { data: playlistDetail } = useQuery<{ playlist: Playlist; songs: PlaylistSong[] }>({
-    queryKey: ['/api/playlists', selectedPlaylistId],
-    enabled: !!selectedPlaylistId,
+    queryKey: ['/api/playlists', selectedPlaylistId], enabled: !!selectedPlaylistId,
   });
 
   const songs = playlistDetail?.songs || [];
   const currentSong = songs[currentIndex];
+  const activeBumpers = bumpers.filter(b => b.isActive === 1);
+
+  const playNextSong = useCallback((idx: number) => {
+    setCurrentIndex(idx);
+    setCurrentTime(0);
+    setIsPlaying(true);
+    setIsBumperPlaying(false);
+  }, []);
+
+  const tryPlayBumper = useCallback((nextIdx: number) => {
+    songsSinceBumperRef.current += 1;
+    if (songsSinceBumperRef.current >= 3 && activeBumpers.length > 0) {
+      songsSinceBumperRef.current = 0;
+      const bumper = activeBumpers[Math.floor(Math.random() * activeBumpers.length)];
+      const ba = bumperAudioRef.current;
+      if (ba) {
+        ba.src = bumper.audioUrl;
+        ba.volume = isMuted ? 0 : volume;
+        ba.load();
+        setIsBumperPlaying(true);
+        ba.onended = () => { setIsBumperPlaying(false); playNextSong(nextIdx); };
+        ba.play().catch(() => playNextSong(nextIdx));
+        return;
+      }
+    }
+    playNextSong(nextIdx);
+  }, [activeBumpers, isMuted, volume, playNextSong]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -291,45 +293,30 @@ function MyStationPlayer() {
     audio.src = currentSong.audioUrl;
     audio.volume = isMuted ? 0 : volume;
     audio.load();
-    if (isPlaying) audio.play().catch(() => {});
+    if (isPlaying && !isBumperPlaying) audio.play().catch(() => {});
   }, [currentIndex, selectedPlaylistId]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = isMuted ? 0 : volume;
+    if (audioRef.current) audioRef.current.volume = isMuted ? 0 : volume;
+    if (bumperAudioRef.current) bumperAudioRef.current.volume = isMuted ? 0 : volume;
   }, [volume, isMuted]);
 
   const handleEnded = () => {
     if (songs.length === 0) return;
-    setCurrentIndex(i => (i + 1) % songs.length);
-    setCurrentTime(0);
-  };
-
-  const handleTimeUpdate = () => {
-    if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+    const nextIdx = (currentIndex + 1) % songs.length;
+    tryPlayBumper(nextIdx);
   };
 
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
-    } else {
-      audio.play().then(() => setIsPlaying(true)).catch(() => {});
-    }
+    if (isPlaying) { audio.pause(); setIsPlaying(false); }
+    else { audio.play().then(() => setIsPlaying(true)).catch(() => {}); }
   };
 
-  const skipTo = (idx: number) => {
-    setCurrentIndex(idx);
-    setCurrentTime(0);
-    setIsPlaying(true);
-  };
-
+  const skipTo = (idx: number) => { setCurrentIndex(idx); setCurrentTime(0); setIsPlaying(true); setIsBumperPlaying(false); };
   const skipNext = () => skipTo((currentIndex + 1) % Math.max(songs.length, 1));
   const skipPrev = () => skipTo((currentIndex - 1 + songs.length) % Math.max(songs.length, 1));
-
   const duration = currentSong?.duration || 240;
 
   if (!user) {
@@ -352,19 +339,13 @@ function MyStationPlayer() {
         <ListMusic className="w-12 h-12 text-purple-500/50 mx-auto mb-4" />
         <h3 className="text-white font-bold text-lg mb-2">No Playlists Yet</h3>
         <p className="text-slate-400 mb-6">Create a playlist first, then tune into your own station.</p>
-        <Link href="/playlists">
-          <Button data-testid="link-create-playlist-radio" className="bg-purple-600 text-white border-0">
-            Create a Playlist
-          </Button>
-        </Link>
+        <Link href="/playlists"><Button data-testid="link-create-playlist-radio" className="bg-purple-600 text-white border-0">Create a Playlist</Button></Link>
       </div>
     );
   }
 
   return (
     <div className="rounded-2xl border border-cyan-500/30 bg-black/60 backdrop-blur-xl overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-cyan-900/10 via-black/60 to-purple-900/10 pointer-events-none" />
-
       {!selectedPlaylistId ? (
         <div className="p-8">
           <h3 className="text-white font-bold text-lg mb-1 flex items-center gap-2">
@@ -373,12 +354,9 @@ function MyStationPlayer() {
           <p className="text-slate-400 text-sm mb-6">Select a playlist to play it as your personal radio station.</p>
           <div className="grid gap-3">
             {playlists.map(pl => (
-              <button
-                key={pl.id}
-                onClick={() => { setSelectedPlaylistId(pl.id); setCurrentIndex(0); setIsPlaying(true); }}
+              <button key={pl.id} onClick={() => { setSelectedPlaylistId(pl.id); setCurrentIndex(0); setIsPlaying(true); }}
                 data-testid={`button-select-playlist-${pl.id}`}
-                className="flex items-center gap-4 p-4 rounded-xl border border-slate-800 hover-elevate text-left w-full"
-              >
+                className="flex items-center gap-4 p-4 rounded-xl border border-slate-800 hover-elevate text-left w-full">
                 <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-cyan-600 to-purple-600 flex items-center justify-center flex-shrink-0">
                   <Music className="w-5 h-5 text-white" />
                 </div>
@@ -391,22 +369,13 @@ function MyStationPlayer() {
             ))}
           </div>
           <div className="mt-4 text-center">
-            <Link href="/playlists">
-              <Button variant="ghost" size="sm" className="text-slate-500">
-                Manage Playlists
-              </Button>
-            </Link>
+            <Link href="/playlists"><Button variant="ghost" size="sm" className="text-slate-500">Manage Playlists</Button></Link>
           </div>
         </div>
       ) : (
         <div className="p-8">
           <div className="flex items-center gap-3 mb-6">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => { setSelectedPlaylistId(null); setIsPlaying(false); audioRef.current?.pause(); }}
-              data-testid="button-back-playlist-select"
-            >
+            <Button size="icon" variant="ghost" onClick={() => { setSelectedPlaylistId(null); setIsPlaying(false); audioRef.current?.pause(); }} data-testid="button-back-playlist-select">
               <SkipBack className="w-4 h-4" />
             </Button>
             <div>
@@ -418,7 +387,14 @@ function MyStationPlayer() {
             </Badge>
           </div>
 
-          {currentSong && (
+          {isBumperPlaying && (
+            <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-900/30 border border-cyan-500/30">
+              <Mic2 className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+              <span className="text-cyan-300 text-sm font-mono">Station break playing...</span>
+            </div>
+          )}
+
+          {currentSong && !isBumperPlaying && (
             <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
               <div className="w-40 h-40 rounded-xl overflow-hidden border border-cyan-500/30 bg-cyan-900/20 flex-shrink-0">
                 {currentSong.coverArt ? (
@@ -429,42 +405,27 @@ function MyStationPlayer() {
                   </div>
                 )}
               </div>
-
               <div className="flex-1 min-w-0 text-center md:text-left">
-                <p className="text-xs text-slate-500 uppercase tracking-widest mb-1 font-mono">
-                  Track {currentIndex + 1} of {songs.length}
-                </p>
+                <p className="text-xs text-slate-500 uppercase tracking-widest mb-1 font-mono">Track {currentIndex + 1} of {songs.length}</p>
                 <h2 className="text-2xl font-bold text-white truncate">{currentSong.title}</h2>
                 <p className="text-cyan-300 mt-1">{currentSong.artist}</p>
-
                 <div className="mt-4">
                   <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mb-2">
                     <span>{formatTime(currentTime)}</span>
                     <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min((currentTime / duration) * 100, 100)}%` }}
-                      />
+                      <div className="h-full bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min((currentTime / duration) * 100, 100)}%` }} />
                     </div>
                     <span>{formatTime(duration)}</span>
                   </div>
-                  <WaveformBars playing={isPlaying} />
+                  <WaveformBars playing={isPlaying} color="cyan" />
                 </div>
-
                 <div className="flex items-center gap-3 mt-5 justify-center md:justify-start">
-                  <Button size="icon" variant="ghost" onClick={skipPrev} data-testid="button-my-station-prev">
-                    <SkipBack className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    onClick={togglePlay}
-                    data-testid="button-my-station-play"
-                    className="px-8 bg-gradient-to-r from-cyan-600 to-purple-600 text-white border-0"
-                  >
+                  <Button size="icon" variant="ghost" onClick={skipPrev} data-testid="button-my-station-prev"><SkipBack className="w-4 h-4" /></Button>
+                  <Button onClick={togglePlay} data-testid="button-my-station-play" className="px-8 bg-gradient-to-r from-cyan-600 to-purple-600 text-white border-0">
                     {isPlaying ? <><Pause className="w-4 h-4 mr-2" />Pause</> : <><Play className="w-4 h-4 mr-2" />Play</>}
                   </Button>
-                  <Button size="icon" variant="ghost" onClick={skipNext} data-testid="button-my-station-next">
-                    <SkipForward className="w-4 h-4" />
-                  </Button>
+                  <Button size="icon" variant="ghost" onClick={skipNext} data-testid="button-my-station-next"><SkipForward className="w-4 h-4" /></Button>
                   <Button size="icon" variant="ghost" onClick={() => setIsMuted(m => !m)} data-testid="button-my-station-mute">
                     {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                   </Button>
@@ -475,18 +436,14 @@ function MyStationPlayer() {
 
           <div className="mt-6 border-t border-slate-800 pt-4 max-h-48 overflow-y-auto space-y-1">
             {songs.map((s, i) => (
-              <button
-                key={s.songId}
-                onClick={() => skipTo(i)}
-                data-testid={`button-my-station-track-${s.songId}`}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${i === currentIndex ? 'bg-cyan-900/30 text-white' : 'text-slate-400 hover-elevate'}`}
-              >
+              <button key={s.songId} onClick={() => skipTo(i)} data-testid={`button-my-station-track-${s.songId}`}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${i === currentIndex ? 'bg-cyan-900/30 text-white' : 'text-slate-400 hover-elevate'}`}>
                 <span className="text-xs font-mono w-5 text-center text-slate-600">{i + 1}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate font-medium">{s.title}</p>
                   <p className="text-xs text-slate-600 truncate">{s.artist}</p>
                 </div>
-                {i === currentIndex && isPlaying && (
+                {i === currentIndex && isPlaying && !isBumperPlaying && (
                   <Disc3 className="w-3.5 h-3.5 text-cyan-400 animate-spin flex-shrink-0" style={{ animationDuration: '2s' }} />
                 )}
               </button>
@@ -494,8 +451,72 @@ function MyStationPlayer() {
           </div>
         </div>
       )}
-      <audio ref={audioRef} preload="auto" onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} />
+      <audio ref={audioRef} preload="auto" onEnded={handleEnded} onTimeUpdate={() => { if (audioRef.current) setCurrentTime(audioRef.current.currentTime); }} />
+      <audio ref={bumperAudioRef} preload="none" />
     </div>
+  );
+}
+
+interface SongRequestForm { fanName: string; songTitle: string; artist: string; message: string; }
+
+function SongRequestPanel() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [submitted, setSubmitted] = useState(false);
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<SongRequestForm>();
+
+  const mutation = useMutation({
+    mutationFn: (data: SongRequestForm) => apiRequest('POST', '/api/song-requests', data),
+    onSuccess: () => { setSubmitted(true); reset(); },
+    onError: () => toast({ title: 'Failed to submit request', variant: 'destructive' }),
+  });
+
+  return (
+    <Card className="border-purple-500/20 bg-black/40">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-white">
+          <Send className="w-5 h-5 text-purple-400" /> Request a Song
+        </CardTitle>
+        <p className="text-slate-400 text-sm">Want to hear something specific? Send it in — Shakim sees every request.</p>
+      </CardHeader>
+      <CardContent>
+        {submitted ? (
+          <div className="text-center py-6">
+            <CheckCircle className="w-10 h-10 text-green-400 mx-auto mb-3" />
+            <p className="text-white font-semibold">Request sent!</p>
+            <p className="text-slate-400 text-sm mt-1">Shakim will see it. Stay tuned.</p>
+            <Button variant="ghost" size="sm" className="mt-4 text-slate-500" onClick={() => setSubmitted(false)}>Send another</Button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit(d => mutation.mutate(d))} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Input placeholder="Your name *" data-testid="input-request-fan-name"
+                  {...register('fanName', { required: true })}
+                  className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-600" />
+                {errors.fanName && <p className="text-red-400 text-xs mt-1">Name is required</p>}
+              </div>
+              <div>
+                <Input placeholder="Song title *" data-testid="input-request-song-title"
+                  {...register('songTitle', { required: true })}
+                  className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-600" />
+                {errors.songTitle && <p className="text-red-400 text-xs mt-1">Song title is required</p>}
+              </div>
+            </div>
+            <Input placeholder="Artist (optional)" data-testid="input-request-artist"
+              {...register('artist')} className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-600" />
+            <Textarea placeholder="Message for Shakim (optional)" data-testid="input-request-message"
+              {...register('message')} maxLength={300}
+              className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 resize-none" rows={3} />
+            {!user && <p className="text-slate-500 text-xs">Not required to sign in — but <Link href="/signup" className="text-purple-400 underline">joining free</Link> lets Shakim know who's asking.</p>}
+            <Button type="submit" disabled={mutation.isPending} data-testid="button-submit-song-request"
+              className="w-full bg-gradient-to-r from-purple-600 to-cyan-600 text-white border-0">
+              {mutation.isPending ? 'Sending...' : <><Send className="w-4 h-4 mr-2" />Send Request</>}
+            </Button>
+          </form>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -511,64 +532,42 @@ export default function RadioPage() {
           to   { transform: scaleY(1); }
         }
       `}</style>
-
       <div className="absolute inset-0 bg-gradient-to-b from-purple-950/30 via-black to-black pointer-events-none" />
-      <div
-        className="absolute inset-0 opacity-5 pointer-events-none"
-        style={{ backgroundImage: 'radial-gradient(circle at 50% 50%, #7c3aed 0%, transparent 60%)' }}
-      />
+      <div className="absolute inset-0 opacity-5 pointer-events-none"
+        style={{ backgroundImage: 'radial-gradient(circle at 50% 50%, #7c3aed 0%, transparent 60%)' }} />
 
       <div className="relative max-w-4xl mx-auto px-4 py-16">
         <div className="text-center mb-12">
           <div className="flex items-center justify-center gap-3 mb-4">
             <Radio className="w-8 h-8 text-purple-400" />
-            <h1 className="text-4xl md:text-5xl font-bold text-white font-display tracking-wider">
-              DNA Radio
-            </h1>
+            <h1 className="text-4xl md:text-5xl font-bold text-white font-display tracking-wider">DNA Radio</h1>
           </div>
           <p className="text-slate-400 max-w-md mx-auto">
-            The official Project DNA station — playing all day, all frequency. Tune in with everyone or build your own station from your playlists.
+            The official Project DNA station — playing all day, all frequency. Tune in with everyone or build your own station.
           </p>
         </div>
 
         <div className="flex gap-2 p-1 bg-slate-900/80 rounded-xl mb-8 border border-slate-800">
-          <button
-            onClick={() => setTab('dna')}
-            data-testid="button-tab-dna-radio"
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${tab === 'dna' ? 'bg-purple-600 text-white' : 'text-slate-400 hover-elevate'}`}
-          >
+          <button onClick={() => setTab('dna')} data-testid="button-tab-dna-radio"
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${tab === 'dna' ? 'bg-purple-600 text-white' : 'text-slate-400 hover-elevate'}`}>
             <Radio className="w-4 h-4" /> DNA Radio
           </button>
-          <button
-            onClick={() => setTab('mine')}
-            data-testid="button-tab-my-station"
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${tab === 'mine' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover-elevate'}`}
-          >
-            <ListMusic className="w-4 h-4" />
-            My Station
-            {!user && <Lock className="w-3 h-3 opacity-60" />}
+          <button onClick={() => setTab('mine')} data-testid="button-tab-my-station"
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${tab === 'mine' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover-elevate'}`}>
+            <ListMusic className="w-4 h-4" /> My Station {!user && <Lock className="w-3 h-3 opacity-60" />}
           </button>
         </div>
 
-        {tab === 'dna' ? (
-          <DNARadioPlayer />
-        ) : (
-          <div className="relative">
-            <MyStationPlayer />
-          </div>
-        )}
+        {tab === 'dna' ? <DNARadioPlayer /> : <div className="relative"><MyStationPlayer /></div>}
 
-        {tab === 'dna' && (
-          <div className="mt-8 text-center">
-            <p className="text-slate-600 text-sm">
-              Everyone hears the same song at the same moment — like a real radio station.
-            </p>
-            {!user && (
-              <p className="text-slate-500 text-sm mt-2">
-                <Link href="/signup" className="text-purple-400 hover:text-purple-300 underline">Join free</Link> to build your own station from personal playlists.
-              </p>
-            )}
-          </div>
+        <div className="mt-10">
+          <SongRequestPanel />
+        </div>
+
+        {tab === 'dna' && !user && (
+          <p className="text-slate-500 text-sm mt-6 text-center">
+            <Link href="/signup" className="text-purple-400 hover:text-purple-300 underline">Join free</Link> to build your own station from personal playlists.
+          </p>
         )}
       </div>
     </div>

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users } from "lucide-react";
+import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users, Mic2, Send } from "lucide-react";
 import AdminAgentHub from "@/components/AdminAgentHub";
 import FanPipeline from "@/components/FanPipeline";
 import { Link } from "wouter";
@@ -215,6 +215,34 @@ export default function AdminDashboard() {
     onError: () => {
       toast({ title: "Error", description: "Failed to delete comment", variant: "destructive" });
     }
+  });
+
+  // Radio bumpers
+  const { data: radioBumpersList = [] } = useQuery<{id: number, title: string, audioUrl: string, isActive: number}[]>({
+    queryKey: ['/api/radio/bumpers'], enabled: isAdmin,
+  });
+  const [newBumperTitle, setNewBumperTitle] = useState('');
+  const [newBumperUrl, setNewBumperUrl] = useState('');
+  const addBumperMutation = useMutation({
+    mutationFn: (d: {title: string, audioUrl: string}) => apiRequest('POST', '/api/admin/radio/bumpers', d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['/api/radio/bumpers'] }); setNewBumperTitle(''); setNewBumperUrl(''); toast({ title: 'Bumper added' }); },
+  });
+  const toggleBumperMutation = useMutation({
+    mutationFn: ({id, isActive}: {id: number, isActive: number}) => apiRequest('PATCH', `/api/admin/radio/bumpers/${id}`, { isActive }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/radio/bumpers'] }),
+  });
+  const deleteBumperMutation = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/admin/radio/bumpers/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/radio/bumpers'] }),
+  });
+
+  // Song requests
+  const { data: songRequestsList = [] } = useQuery<{id: number, fanName: string, songTitle: string, artist: string | null, message: string | null, status: string, createdAt: string}[]>({
+    queryKey: ['/api/admin/song-requests'], enabled: isAdmin,
+  });
+  const updateSongRequestMutation = useMutation({
+    mutationFn: ({id, status}: {id: number, status: string}) => apiRequest('PATCH', `/api/admin/song-requests/${id}`, { status }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['/api/admin/song-requests'] }); toast({ title: 'Request updated' }); },
   });
 
   const addSongMutation = useMutation({
@@ -1187,6 +1215,119 @@ export default function AdminDashboard() {
             )}
           </CardContent>
         </Card>
+          {/* ===== RADIO BUMPERS ===== */}
+          <Card className="border-purple-500/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mic2 className="h-5 w-5 text-purple-400" />
+                Station Bumpers
+              </CardTitle>
+              <CardDescription>
+                Short audio clips that play between every 3 songs on DNA Radio and My Station. Paste a public audio URL (MP3/WAV).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Input placeholder="Bumper title (e.g. DNA Radio Station ID)" value={newBumperTitle}
+                  onChange={e => setNewBumperTitle(e.target.value)} data-testid="input-bumper-title"
+                  className="flex-1 min-w-[160px]" />
+                <Input placeholder="Audio URL (https://...)" value={newBumperUrl}
+                  onChange={e => setNewBumperUrl(e.target.value)} data-testid="input-bumper-url"
+                  className="flex-1 min-w-[220px]" />
+                <Button
+                  onClick={() => { if (newBumperTitle && newBumperUrl) addBumperMutation.mutate({ title: newBumperTitle, audioUrl: newBumperUrl }); }}
+                  disabled={!newBumperTitle || !newBumperUrl || addBumperMutation.isPending}
+                  data-testid="button-add-bumper"
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Add Bumper
+                </Button>
+              </div>
+              {radioBumpersList.length === 0 ? (
+                <p className="text-muted-foreground text-sm py-4 text-center">No bumpers yet. Add one above.</p>
+              ) : (
+                <div className="space-y-2">
+                  {radioBumpersList.map(b => (
+                    <div key={b.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-800">
+                      <Mic2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{b.title}</p>
+                        <p className="text-xs text-slate-500 truncate">{b.audioUrl}</p>
+                      </div>
+                      <Badge variant={b.isActive ? 'default' : 'outline'} className="flex-shrink-0">
+                        {b.isActive ? 'Active' : 'Off'}
+                      </Badge>
+                      <Button size="sm" variant="outline"
+                        onClick={() => toggleBumperMutation.mutate({ id: b.id, isActive: b.isActive ? 0 : 1 })}
+                        data-testid={`button-toggle-bumper-${b.id}`}>
+                        {b.isActive ? 'Disable' : 'Enable'}
+                      </Button>
+                      <Button size="icon" variant="ghost"
+                        onClick={() => deleteBumperMutation.mutate(b.id)}
+                        data-testid={`button-delete-bumper-${b.id}`}>
+                        <Trash2 className="w-4 h-4 text-red-400" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ===== SONG REQUESTS ===== */}
+          <Card className="border-cyan-500/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Send className="h-5 w-5 text-cyan-400" />
+                Song Requests
+                {songRequestsList.filter(r => r.status === 'pending').length > 0 && (
+                  <Badge className="ml-2">{songRequestsList.filter(r => r.status === 'pending').length} new</Badge>
+                )}
+              </CardTitle>
+              <CardDescription>Fan song requests submitted from the Radio page.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {songRequestsList.length === 0 ? (
+                <p className="text-muted-foreground text-sm py-4 text-center">No requests yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {songRequestsList.slice().reverse().map(r => (
+                    <div key={r.id} data-testid={`song-request-${r.id}`}
+                      className="flex items-start gap-3 p-3 rounded-lg border border-slate-800">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white">{r.fanName}</p>
+                          <span className="text-slate-500 text-xs">→</span>
+                          <p className="text-sm text-purple-300">"{r.songTitle}"</p>
+                          {r.artist && <span className="text-slate-500 text-xs">by {r.artist}</span>}
+                        </div>
+                        {r.message && <p className="text-xs text-slate-400 mt-1 italic">"{r.message}"</p>}
+                        <p className="text-xs text-slate-600 mt-0.5">{r.createdAt?.slice(0, 10)}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Badge variant={r.status === 'pending' ? 'default' : r.status === 'played' ? 'outline' : 'secondary'}>
+                          {r.status}
+                        </Badge>
+                        {r.status === 'pending' && (
+                          <>
+                            <Button size="sm" variant="outline"
+                              onClick={() => updateSongRequestMutation.mutate({ id: r.id, status: 'played' })}
+                              data-testid={`button-request-played-${r.id}`}>
+                              <CheckCircle className="w-3.5 h-3.5 mr-1" />Played
+                            </Button>
+                            <Button size="sm" variant="ghost"
+                              onClick={() => updateSongRequestMutation.mutate({ id: r.id, status: 'declined' })}
+                              data-testid={`button-request-decline-${r.id}`}>
+                              <XCircle className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
           </TabsContent>
 
           <TabsContent value="pipeline" className="space-y-6">

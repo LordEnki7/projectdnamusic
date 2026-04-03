@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { registerAIAgentRoutes } from "./aiAgents";
-import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
+import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, songRequests, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
 import { asc, eq, and, sql, inArray } from "drizzle-orm";
 import Stripe from "stripe";
 import bcrypt from "bcryptjs";
@@ -1008,16 +1008,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ PLAYLIST ENDPOINTS ============
   
-  // DNA Radio - synchronized now-playing calculation
+  // DNA Radio - synchronized now-playing calculation (with bumpers)
   app.get("/api/radio/now-playing", async (req, res) => {
     try {
       const allSongs = await db.select().from(songs).orderBy(asc(songs.trackNumber));
       if (allSongs.length === 0) return res.json({ song: null });
 
-      const DEFAULT_SLOT = 240; // seconds per song if no duration
-      const slots = allSongs.map(s => ({ song: s, slotDuration: s.duration || DEFAULT_SLOT }));
-      const totalCycle = slots.reduce((acc, s) => acc + s.slotDuration, 0);
+      const activeBumpers = await db.select().from(radioBumpers).where(eq(radioBumpers.isActive, 1));
+      const DEFAULT_SLOT = 240;
+      const BUMPER_SLOT = 35;
+      const SONGS_BETWEEN_BUMPERS = 3;
 
+      // Build rotation: song, song, song, bumper, song, song, song, bumper, ...
+      interface Slot {
+        type: 'song' | 'bumper';
+        song?: typeof allSongs[0];
+        bumper?: typeof activeBumpers[0];
+        slotDuration: number;
+      }
+      const slots: Slot[] = [];
+      let bumperIdx = 0;
+      allSongs.forEach((s, i) => {
+        slots.push({ type: 'song', song: s, slotDuration: s.duration || DEFAULT_SLOT });
+        if ((i + 1) % SONGS_BETWEEN_BUMPERS === 0 && activeBumpers.length > 0) {
+          const bumper = activeBumpers[bumperIdx % activeBumpers.length];
+          slots.push({ type: 'bumper', bumper, slotDuration: BUMPER_SLOT });
+          bumperIdx++;
+        }
+      });
+
+      const totalCycle = slots.reduce((acc, s) => acc + s.slotDuration, 0);
       const nowSeconds = Math.floor(Date.now() / 1000);
       const posInCycle = nowSeconds % totalCycle;
 
@@ -1031,19 +1051,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
         elapsed += slot.slotDuration;
       }
 
-      const positionInSong = posInCycle - elapsed;
-      const secondsUntilNext = currentSlot.slotDuration - positionInSong;
+      const positionInSlot = posInCycle - elapsed;
+      const secondsUntilNext = currentSlot.slotDuration - positionInSlot;
 
-      res.json({
-        song: currentSlot.song,
-        positionSeconds: positionInSong,
-        slotDurationSeconds: currentSlot.slotDuration,
-        secondsUntilNext,
-        totalSongs: allSongs.length,
-      });
+      if (currentSlot.type === 'bumper') {
+        res.json({
+          type: 'bumper',
+          bumper: currentSlot.bumper,
+          song: null,
+          positionSeconds: positionInSlot,
+          slotDurationSeconds: currentSlot.slotDuration,
+          secondsUntilNext,
+          totalSongs: allSongs.length,
+        });
+      } else {
+        res.json({
+          type: 'song',
+          song: currentSlot.song,
+          positionSeconds: positionInSlot,
+          slotDurationSeconds: currentSlot.slotDuration,
+          secondsUntilNext,
+          totalSongs: allSongs.length,
+        });
+      }
     } catch (err) {
       res.status(500).json({ error: "Failed to compute radio state" });
     }
+  });
+
+  // Bumper management
+  app.get("/api/radio/bumpers", async (req, res) => {
+    try {
+      const all = await db.select().from(radioBumpers).orderBy(asc(radioBumpers.id));
+      res.json(all);
+    } catch { res.status(500).json({ error: "Failed to fetch bumpers" }); }
+  });
+
+  app.post("/api/admin/radio/bumpers", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { title, audioUrl } = req.body;
+      if (!title || !audioUrl) return res.status(400).json({ error: "title and audioUrl required" });
+      const [bumper] = await db.insert(radioBumpers).values({ title, audioUrl, isActive: 1 }).returning();
+      res.json(bumper);
+    } catch { res.status(500).json({ error: "Failed to create bumper" }); }
+  });
+
+  app.patch("/api/admin/radio/bumpers/:id", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const id = parseInt(req.params.id);
+      const { isActive } = req.body;
+      const [bumper] = await db.update(radioBumpers).set({ isActive }).where(eq(radioBumpers.id, id)).returning();
+      res.json(bumper);
+    } catch { res.status(500).json({ error: "Failed to update bumper" }); }
+  });
+
+  app.delete("/api/admin/radio/bumpers/:id", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(radioBumpers).where(eq(radioBumpers.id, id));
+      res.json({ success: true });
+    } catch { res.status(500).json({ error: "Failed to delete bumper" }); }
+  });
+
+  // Song requests
+  app.post("/api/song-requests", async (req, res) => {
+    try {
+      const { fanName, songTitle, artist, message } = req.body;
+      if (!fanName || !songTitle) return res.status(400).json({ error: "fanName and songTitle required" });
+      const userId = req.session.userId || null;
+      const [request] = await db.insert(songRequests).values({ fanName, songTitle, artist: artist || null, message: message || null, userId, status: "pending" }).returning();
+      res.json(request);
+    } catch { res.status(500).json({ error: "Failed to submit request" }); }
+  });
+
+  app.get("/api/admin/song-requests", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const all = await db.select().from(songRequests).orderBy(asc(songRequests.createdAt));
+      res.json(all);
+    } catch { res.status(500).json({ error: "Failed to fetch requests" }); }
+  });
+
+  app.patch("/api/admin/song-requests/:id", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      const [updated] = await db.update(songRequests).set({ status }).where(eq(songRequests.id, id)).returning();
+      res.json(updated);
+    } catch { res.status(500).json({ error: "Failed to update request" }); }
   });
 
   // Get user's playlists

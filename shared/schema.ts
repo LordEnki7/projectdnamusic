@@ -832,3 +832,32 @@ export const insertAgentProposalSchema = createInsertSchema(agentProposals).omit
 });
 export type InsertAgentProposal = z.infer<typeof insertAgentProposalSchema>;
 export type AgentProposal = typeof agentProposals.$inferSelect;
+
+// ============ DNA RADIO ============
+
+export const radioBumpers = pgTable("radio_bumpers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  title: text("title").notNull(),
+  audioUrl: text("audio_url").notNull(),
+  isActive: integer("is_active").default(1),
+  createdAt: text("created_at").notNull().default(sql`now()`),
+});
+
+export const insertRadioBumperSchema = createInsertSchema(radioBumpers).omit({ id: true, createdAt: true });
+export type InsertRadioBumper = z.infer<typeof insertRadioBumperSchema>;
+export type RadioBumper = typeof radioBumpers.$inferSelect;
+
+export const songRequests = pgTable("song_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: varchar("user_id").references(() => users.id),
+  fanName: text("fan_name").notNull(),
+  songTitle: text("song_title").notNull(),
+  artist: text("artist"),
+  message: text("message"),
+  status: text("status").notNull().default("pending"),
+  createdAt: text("created_at").notNull().default(sql`now()`),
+});
+
+export const insertSongRequestSchema = createInsertSchema(songRequests).omit({ id: true, createdAt: true });
+export type InsertSongRequest = z.infer<typeof insertSongRequestSchema>;
+export type SongRequest = typeof songRequests.$inferSelect;
