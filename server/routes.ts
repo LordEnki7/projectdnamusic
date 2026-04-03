@@ -3498,6 +3498,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const { nigStatusHandler } = await import("./nig-status");
   app.get("/api/nig-status", nigStatusHandler);
 
+  // Fan Pipeline (N1M Conversion System)
+  const { registerFanAgentRoutes } = await import("./fanAgents");
+  registerFanAgentRoutes(app);
+
   registerAIAgentRoutes(app);
 
   const httpServer = createServer(app);

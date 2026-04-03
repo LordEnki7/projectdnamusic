@@ -4,8 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot } from "lucide-react";
+import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users } from "lucide-react";
 import AdminAgentHub from "@/components/AdminAgentHub";
+import FanPipeline from "@/components/FanPipeline";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
@@ -390,11 +391,15 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="content" data-testid="tab-content">Add Content</TabsTrigger>
-            <TabsTrigger value="orders" data-testid="tab-orders">Orders & Messages</TabsTrigger>
-            <TabsTrigger value="engagement" data-testid="tab-engagement">Fan Engagement</TabsTrigger>
+            <TabsTrigger value="orders" data-testid="tab-orders">Orders</TabsTrigger>
+            <TabsTrigger value="engagement" data-testid="tab-engagement">Engagement</TabsTrigger>
+            <TabsTrigger value="pipeline" data-testid="tab-pipeline" className="flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" />
+              Fan Pipeline
+            </TabsTrigger>
             <TabsTrigger value="agents" data-testid="tab-agents" className="flex items-center gap-1.5">
               <Bot className="w-3.5 h-3.5" />
               AI Agents
@@ -1182,6 +1187,18 @@ export default function AdminDashboard() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+
+          <TabsContent value="pipeline" className="space-y-6">
+            <div className="mb-2">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-purple-400" /> Fan Pipeline — N1M Conversion System
+              </h2>
+              <p className="text-slate-400 text-sm mt-1">
+                Track N1M fans, draft messages, generate campaign links, and run AI agents that work the pipeline every day automatically.
+              </p>
+            </div>
+            <FanPipeline />
           </TabsContent>
 
           <TabsContent value="agents" className="space-y-6">

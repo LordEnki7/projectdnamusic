@@ -10,6 +10,7 @@ import { allSongsData, merchandiseData, beatsData, membershipTiersData } from ".
 import { eq, isNull, sql as drizzleSql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { runAdvisorScanJob } from "./aiAgents";
+import { runDailyReportAgent } from "./fanAgents";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -375,6 +376,20 @@ async function seedProductionDatabase() {
 
   setTimeout(scheduleDailyScan, 5 * 60 * 1000);
   setInterval(scheduleDailyScan, 24 * 60 * 60 * 1000);
+
+  // ─── Daily Fan Pipeline Report ──────────────────────────────────────────────
+  async function scheduleFanDailyReport() {
+    try {
+      log("Running scheduled fan pipeline daily report...");
+      await runDailyReportAgent("system");
+      log("Fan daily report complete.");
+    } catch (err: any) {
+      log(`Fan daily report error: ${err.message}`);
+    }
+  }
+  // Run 10 minutes after startup, then every 24 hours at different time from advisor
+  setTimeout(scheduleFanDailyReport, 10 * 60 * 1000);
+  setInterval(scheduleFanDailyReport, 24 * 60 * 60 * 1000);
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

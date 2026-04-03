@@ -379,6 +379,149 @@ export const contentComments = pgTable("content_comments", {
   createdAt: text("created_at").notNull(),
 });
 
+// ─── Fan CRM System ───────────────────────────────────────────────────────────
+
+export const fans = pgTable("fans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourcePlatform: varchar("source_platform", { length: 50 }).notNull().default("N1M"),
+  platformUserId: varchar("platform_user_id", { length: 255 }),
+  username: varchar("username", { length: 255 }),
+  displayName: varchar("display_name", { length: 255 }),
+  realName: varchar("real_name", { length: 255 }),
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
+  city: varchar("city", { length: 100 }),
+  stateRegion: varchar("state_region", { length: 100 }),
+  country: varchar("country", { length: 100 }),
+  stage: varchar("stage", { length: 50 }).notNull().default("cold_follower"),
+  leadScore: integer("lead_score").notNull().default(0),
+  favoriteSong: varchar("favorite_song", { length: 255 }),
+  favoriteContentType: varchar("favorite_content_type", { length: 100 }),
+  websiteClicked: integer("website_clicked").notNull().default(0),
+  emailCaptured: integer("email_captured").notNull().default(0),
+  phoneCaptured: integer("phone_captured").notNull().default(0),
+  vipStatus: integer("vip_status").notNull().default(0),
+  purchaseStatus: integer("purchase_status").notNull().default(0),
+  firstContactDate: text("first_contact_date"),
+  lastContactDate: text("last_contact_date"),
+  lastReplyDate: text("last_reply_date"),
+  lastWebsiteVisit: text("last_website_visit"),
+  lastPurchaseDate: text("last_purchase_date"),
+  notes: text("notes"),
+  tags: text("tags").default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const fanInteractions = pgTable("fan_interactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fanId: varchar("fan_id").references(() => fans.id).notNull(),
+  interactionType: varchar("interaction_type", { length: 50 }).notNull(),
+  channel: varchar("channel", { length: 50 }).notNull(),
+  direction: varchar("direction", { length: 20 }).notNull(),
+  subject: varchar("subject", { length: 255 }),
+  messageText: text("message_text"),
+  status: varchar("status", { length: 50 }).default("completed"),
+  metadata: text("metadata").default("{}"),
+  occurredAt: text("occurred_at").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const fanScores = pgTable("fan_scores", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fanId: varchar("fan_id").references(() => fans.id).notNull(),
+  scoreChange: integer("score_change").notNull(),
+  reason: varchar("reason", { length: 255 }).notNull(),
+  sourceEvent: varchar("source_event", { length: 100 }),
+  createdAt: text("created_at").notNull(),
+});
+
+export const fanStageHistory = pgTable("fan_stage_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fanId: varchar("fan_id").references(() => fans.id).notNull(),
+  oldStage: varchar("old_stage", { length: 50 }),
+  newStage: varchar("new_stage", { length: 50 }).notNull(),
+  reason: varchar("reason", { length: 255 }),
+  changedAt: text("changed_at").notNull(),
+});
+
+export const campaignLinks = pgTable("campaign_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignName: varchar("campaign_name", { length: 255 }).notNull(),
+  sourcePlatform: varchar("source_platform", { length: 50 }).notNull().default("N1M"),
+  sourceMessageType: varchar("source_message_type", { length: 100 }),
+  destinationUrl: text("destination_url").notNull(),
+  trackingCode: varchar("tracking_code", { length: 100 }).unique().notNull(),
+  clickCount: integer("click_count").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+});
+
+export const fanLinkClicks = pgTable("fan_link_clicks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fanId: varchar("fan_id").references(() => fans.id),
+  campaignLinkId: varchar("campaign_link_id").references(() => campaignLinks.id),
+  clickedUrl: text("clicked_url").notNull(),
+  referrer: varchar("referrer", { length: 100 }).default("N1M"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  clickedAt: text("clicked_at").notNull(),
+});
+
+export const fanConversions = pgTable("fan_conversions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fanId: varchar("fan_id").references(() => fans.id).notNull(),
+  conversionType: varchar("conversion_type", { length: 100 }).notNull(),
+  conversionValue: numeric("conversion_value", { precision: 10, scale: 2 }).default("0.00"),
+  metadata: text("metadata").default("{}"),
+  convertedAt: text("converted_at").notNull(),
+});
+
+export const n1mAgentTasks = pgTable("n1m_agent_tasks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  agentName: varchar("agent_name", { length: 100 }).notNull(),
+  fanId: varchar("fan_id").references(() => fans.id),
+  taskType: varchar("task_type", { length: 100 }).notNull(),
+  taskPayload: text("task_payload").notNull().default("{}"),
+  status: varchar("status", { length: 50 }).notNull().default("queued"),
+  priority: integer("priority").notNull().default(5),
+  resultSummary: text("result_summary"),
+  executionSeconds: numeric("execution_seconds", { precision: 10, scale: 2 }),
+  createdAt: text("created_at").notNull(),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+});
+
+export const fanDailyReports = pgTable("fan_daily_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reportDate: text("report_date").notNull(),
+  newFans: integer("new_fans").notNull().default(0),
+  messagesSent: integer("messages_sent").notNull().default(0),
+  repliesReceived: integer("replies_received").notNull().default(0),
+  linksSent: integer("links_sent").notNull().default(0),
+  websiteClicks: integer("website_clicks").notNull().default(0),
+  emailCaptures: integer("email_captures").notNull().default(0),
+  conversions: integer("conversions").notNull().default(0),
+  aiSummary: text("ai_summary"),
+  topMessages: text("top_messages"),
+  recommendations: text("recommendations"),
+  createdAt: text("created_at").notNull(),
+});
+
+// ─── Fan CRM Insert Schemas ────────────────────────────────────────────────────
+
+export const insertFanSchema = createInsertSchema(fans).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertFanInteractionSchema = createInsertSchema(fanInteractions).omit({ id: true, createdAt: true });
+export const insertCampaignLinkSchema = createInsertSchema(campaignLinks).omit({ id: true, createdAt: true, clickCount: true });
+
+export type Fan = typeof fans.$inferSelect;
+export type InsertFan = typeof fans.$inferInsert;
+export type FanInteraction = typeof fanInteractions.$inferSelect;
+export type CampaignLink = typeof campaignLinks.$inferSelect;
+export type N1mAgentTask = typeof n1mAgentTasks.$inferSelect;
+export type FanDailyReport = typeof fanDailyReports.$inferSelect;
+
+// ─── End Fan CRM System ───────────────────────────────────────────────────────
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
