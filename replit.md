@@ -37,6 +37,22 @@ A tier-based membership system with Free, VIP, and Ultimate Fan tiers offers pro
 *   **Secure Download Tracking**: Secure delivery for digital products with payment verification, a 2-download limit, and a recovery page.
 *   **Album Cover Downloads**: Registered members can download high-quality album artwork.
 
+### Fan Onboarding Sequence
+
+Conversational onboarding flow triggered immediately after signup. Adapts the N1M message sequence to a web-native chat experience.
+
+**Flow** (`/welcome` page):
+1. User signs up → redirected to `/welcome` instead of `/exclusive`
+2. Chat-style UI appears with Shakim's avatar — messages appear with typing animation
+3. **Step 1**: "Appreciate you rocking with my music for real. What city you listening from?" → free text input → saved to `users.city`
+4. **Step 2**: "What kind of tracks from me hit you the hardest?" → 4 vibe buttons (Smooth / Deep / Soulful / Straight Energy) → saved to `users.musicVibe`
+5. **Step 3**: Personalized response based on their vibe → completion cards (Catalog, Exclusive Content, Merch) → personalized email sent via Resend mentioning their city and music vibe
+6. If user already completed onboarding (`onboardingStep >= 3`), redirect to `/exclusive` immediately
+
+**Database**: `users.city` (text), `users.musicVibe` (text), `users.onboardingStep` (integer 0–3)
+**API**: `PATCH /api/auth/onboarding` — saves fields, sends completion email at step 3
+**Auth shape**: `city`, `musicVibe`, `onboardingStep` now included in all auth responses (signup, login, checkAuth)
+
 ### DNA Radio & My Station
 
 A two-layer radio system:

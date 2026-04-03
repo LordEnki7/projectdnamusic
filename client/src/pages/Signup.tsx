@@ -37,11 +37,7 @@ export default function Signup() {
 
     try {
       await signup(username, email, password);
-      toast({
-        title: "Welcome to the fan club!",
-        description: "You've unlocked exclusive content and a 15% signup discount!",
-      });
-      setLocation("/exclusive");
+      setLocation("/welcome");
     } catch (error: any) {
       toast({
         title: "Signup failed",

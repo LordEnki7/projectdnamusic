@@ -36,6 +36,7 @@ import FanWall from "@/pages/FanWall";
 import Playlists from "@/pages/Playlists";
 import PlaylistDetail from "@/pages/PlaylistDetail";
 import Radio from "@/pages/Radio";
+import Welcome from "@/pages/Welcome";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -70,6 +71,7 @@ function Router() {
       <Route path="/playlists" component={Playlists} />
       <Route path="/playlists/:id" component={PlaylistDetail} />
       <Route path="/radio" component={Radio} />
+      <Route path="/welcome" component={Welcome} />
       <Route component={NotFound} />
     </Switch>
   );

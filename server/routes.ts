@@ -745,6 +745,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             memberSince: newUser[0].memberSince,
             signupDiscount: newUser[0].signupDiscount,
             tierId: newUser[0].tierId,
+            city: newUser[0].city,
+            musicVibe: newUser[0].musicVibe,
+            onboardingStep: newUser[0].onboardingStep ?? 0,
           };
 
           res.json({ message: "Signup successful", user: userResponse });
@@ -802,6 +805,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             memberSince: user[0].memberSince,
             signupDiscount: user[0].signupDiscount,
             tierId: user[0].tierId,
+            city: user[0].city,
+            musicVibe: user[0].musicVibe,
+            onboardingStep: user[0].onboardingStep ?? 0,
           };
 
           res.json({ message: "Login successful", user: userResponse });
@@ -843,12 +849,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
         signupDiscount: user[0].signupDiscount,
         tierId: user[0].tierId,
         role: user[0].role,
+        city: user[0].city,
+        musicVibe: user[0].musicVibe,
+        onboardingStep: user[0].onboardingStep ?? 0,
       };
 
       res.json(userResponse);
     } catch (error) {
       console.error("Auth check error:", error);
       res.status(500).json({ error: "Failed to check authentication" });
+    }
+  });
+
+  // Fan onboarding — save city, musicVibe, advance step, send personalized email
+  app.patch("/api/auth/onboarding", async (req, res) => {
+    try {
+      const userId = req.session.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+
+      const { city, musicVibe, onboardingStep } = req.body;
+      const updateData: Record<string, unknown> = {};
+      if (city !== undefined) updateData.city = city;
+      if (musicVibe !== undefined) updateData.musicVibe = musicVibe;
+      if (onboardingStep !== undefined) updateData.onboardingStep = onboardingStep;
+
+      const [updated] = await db.update(users).set(updateData).where(eq(users.id, userId)).returning();
+
+      // Send personalized follow-up email when onboarding completes (step 3)
+      if (onboardingStep === 3 && updated.email) {
+        try {
+          const hostname = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+          const connRes = await fetch(`https://${hostname}/api/v2/connection?include_secrets=true&connector_names=resend`, {
+            headers: { 'X-Replit-Identity': process.env.REPLIT_IDENTITY || '' }
+          }).catch(() => null);
+          if (connRes && connRes.ok) {
+            const connData = await connRes.json() as { connections?: { settings?: { api_key?: string; from_email?: string } }[] };
+            const conn = connData.connections?.[0];
+            if (conn?.settings?.api_key) {
+              const { Resend } = await import('resend');
+              const client = new Resend(conn.settings.api_key);
+              const fromEmail = conn.settings.from_email || 'Shakim <noreply@projectdnamusic.info>';
+              const vibeLines: Record<string, string> = {
+                smooth: "You said smooth tracks hit you hardest. Check out some of the soulful cuts on the catalog — those are the ones I put the most feeling into.",
+                deep: "You said deep tracks hit you hardest. Some of my most personal work is in there — the kind of music you listen to when everything gets quiet.",
+                soulful: "You said soulful tracks hit you hardest. That right there is the core of what Project DNA is. Real emotion, real music.",
+                "straight energy": "You said straight energy hits you hardest. Then you need to hear the harder cuts — I made those for the ones who need something that moves.",
+              };
+              const vibeLine = vibeLines[(updated.musicVibe || '').toLowerCase()] || "Whatever you're feeling, there's something in the catalog built for that moment.";
+              const cityLine = updated.city ? `Shout out to ${updated.city} — appreciate you tuning in from there.` : "Appreciate you tuning in for real.";
+
+              await client.emails.send({
+                from: fromEmail,
+                to: updated.email,
+                subject: "You're in — Project DNA",
+                html: `
+                  <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0f; color: #ffffff; padding: 40px 32px; border-radius: 12px;">
+                    <div style="text-align: center; margin-bottom: 32px;">
+                      <img src="https://projectdnamusic.info/media/images/logo.png" alt="Project DNA" style="height: 60px; width: auto;" />
+                    </div>
+                    <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 16px; color: #ffffff;">
+                      Welcome to the circle, ${updated.username}.
+                    </h1>
+                    <p style="color: #94a3b8; line-height: 1.7; margin-bottom: 16px;">
+                      ${cityLine}
+                    </p>
+                    <p style="color: #94a3b8; line-height: 1.7; margin-bottom: 24px;">
+                      ${vibeLine}
+                    </p>
+                    <p style="color: #94a3b8; line-height: 1.7; margin-bottom: 32px;">
+                      There's more on here than what I post anywhere else — exclusive content, early drops, and the full catalog. This is where real supporters tap in.
+                    </p>
+                    <div style="text-align: center; margin-bottom: 32px;">
+                      <a href="https://projectdnamusic.info/catalog" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #7c3aed, #06b6d4); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 16px;">
+                        Explore the Catalog
+                      </a>
+                    </div>
+                    <p style="color: #475569; font-size: 13px; text-align: center;">
+                      — Shakim &amp; Project DNA
+                    </p>
+                  </div>
+                `,
+              });
+            }
+          }
+        } catch (emailErr) {
+          console.error("Onboarding email error:", emailErr);
+        }
+      }
+
+      res.json({
+        id: updated.id, username: updated.username, email: updated.email,
+        isMember: updated.isMember, memberSince: updated.memberSince,
+        signupDiscount: updated.signupDiscount, tierId: updated.tierId,
+        role: updated.role, city: updated.city, musicVibe: updated.musicVibe,
+        onboardingStep: updated.onboardingStep ?? 0,
+      });
+    } catch (err) {
+      console.error("Onboarding error:", err);
+      res.status(500).json({ error: "Failed to save onboarding" });
     }
   });
 

@@ -27,6 +27,9 @@ export const users = pgTable("users", {
   tierId: varchar("tier_id").references(() => membershipTiers.id),
   discountOverride: integer("discount_override"),
   role: text("role").notNull().default("user"),
+  city: text("city"),
+  musicVibe: text("music_vibe"),
+  onboardingStep: integer("onboarding_step").default(0),
 });
 
 export const songs = pgTable("songs", {

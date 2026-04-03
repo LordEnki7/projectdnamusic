@@ -9,6 +9,9 @@ interface User {
   memberSince: string | null;
   signupDiscount: number;
   role: string;
+  city?: string | null;
+  musicVibe?: string | null;
+  onboardingStep?: number;
 }
 
 interface AuthContextType {
