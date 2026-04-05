@@ -685,6 +685,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // ─── Public Join (link-in-bio / email gate) ─────────────────────────────────
+  app.post("/api/public/join", async (req, res) => {
+    try {
+      const { name, email, source } = req.body;
+      if (!email || typeof email !== 'string' || !email.includes('@')) {
+        return res.status(400).json({ error: "Valid email required" });
+      }
+      const cleanEmail = email.toLowerCase().trim();
+      const cleanName = ((name as string) || cleanEmail.split('@')[0]).trim();
+
+      // Add to fan_contacts (skip if exists)
+      await db.insert(fanContacts).values({
+        name: cleanName,
+        email: cleanEmail,
+        location: '',
+        source: (source as string) || 'join_page',
+      }).onConflictDoNothing();
+
+      // Check if user account already exists
+      const existing = await db.select({ id: users.id, username: users.username })
+        .from(users).where(eq(users.email, cleanEmail)).limit(1);
+
+      if (existing.length > 0) {
+        req.session.userId = existing[0].id;
+        return res.json({ success: true, isNew: false, message: "Welcome back! You're already in the family." });
+      }
+
+      // Create new account with random password (they'll get it in their email)
+      const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+      // Ensure unique username
+      let username = cleanName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24) || 'fan';
+      const dupes = await db.select({ id: users.id }).from(users)
+        .where(sql`lower(username) = lower(${username})`).limit(1);
+      if (dupes.length > 0) username = username + Math.floor(Math.random() * 9000 + 1000);
+
+      await new Promise<void>((resolve, reject) => {
+        req.session.regenerate(async (err) => {
+          if (err) return reject(err);
+          try {
+            const [newUser] = await db.insert(users).values({
+              username,
+              email: cleanEmail,
+              password: hashedPassword,
+              role: 'user',
+              isMember: 0,
+              signupDiscount: 15,
+              memberSince: new Date().toISOString(),
+              onboardingStep: 0,
+            }).returning({ id: users.id });
+
+            req.session.userId = newUser.id;
+            enrollUserInWelcomeSequence(newUser.id).catch(() => {});
+            resolve();
+          } catch (e) { reject(e); }
+        });
+      });
+
+      res.json({ success: true, isNew: true, message: "You're in! Check your email from Shakim." });
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        return res.status(409).json({ error: "This email is already registered. Try logging in." });
+      }
+      console.error('[Public Join]', err);
+      res.status(500).json({ error: "Something went wrong. Try again." });
+    }
+  });
+
   app.post("/api/auth/signup", async (req, res) => {
     try {
       const validationResult = insertUserSchema.safeParse(req.body);
@@ -3740,22 +3809,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     total: number; sent: number; failed: number; startedAt: string | null; finishedAt: string | null; lastError: string | null;
   } = { status: 'idle', total: 0, sent: 0, failed: 0, startedAt: null, finishedAt: null, lastError: null };
 
-  function parseCsvContent(content: string): { name: string; email: string; location: string }[] {
-    const lines = content.split('\n').filter(Boolean);
+  // Parse a single CSV line, respecting quoted fields
+  function parseCsvLine(line: string): string[] {
+    const fields: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQuotes = !inQuotes; continue; }
+      if (ch === ',' && !inQuotes) { fields.push(current.trim()); current = ''; continue; }
+      current += ch;
+    }
+    fields.push(current.trim());
+    return fields;
+  }
+
+  function parseCsvContent(content: string, platform = 'generic'): { name: string; email: string; location: string }[] {
+    const rawLines = content.split('\n').map(l => l.trim()).filter(Boolean);
+    if (rawLines.length < 2) return [];
     const contacts: { name: string; email: string; location: string }[] = [];
-    // Detect if first line is a header
-    const startIdx = lines[0]?.toLowerCase().includes('@') ? 0 : 1;
-    for (let i = startIdx; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const firstComma = line.indexOf(',');
-      const secondComma = line.indexOf(',', firstComma + 1);
-      if (firstComma === -1 || secondComma === -1) continue;
-      const name = line.substring(0, firstComma).trim();
-      const email = line.substring(firstComma + 1, secondComma).trim().toLowerCase();
-      const location = line.substring(secondComma + 1).trim();
-      if (!email.includes('@')) continue;
-      contacts.push({ name, email, location });
+
+    const headers = parseCsvLine(rawLines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+    // Column index finders
+    const col = (keys: string[]) => keys.reduce((found, k) => found >= 0 ? found : headers.findIndex(h => h.includes(k)), -1);
+
+    let nameIdx = -1, firstNameIdx = -1, lastNameIdx = -1, emailIdx = -1, locationIdx = -1, countryIdx = -1;
+
+    if (platform === 'distrokid') {
+      firstNameIdx = col(['firstname', 'first']);
+      lastNameIdx = col(['lastname', 'last']);
+      emailIdx = col(['email']);
+      countryIdx = col(['country']);
+    } else if (platform === 'bandcamp') {
+      nameIdx = col(['name', 'buyername']);
+      emailIdx = col(['email', 'buyeremail']);
+      countryIdx = col(['country']);
+    } else if (platform === 'patreon') {
+      nameIdx = col(['fullname', 'name']);
+      emailIdx = col(['email']);
+      countryIdx = col(['country']);
+    } else if (platform === 'mailchimp') {
+      firstNameIdx = col(['fname', 'firstname']);
+      lastNameIdx = col(['lname', 'lastname']);
+      emailIdx = col(['emailaddress', 'email']);
+      countryIdx = col(['country']);
+    } else {
+      // Auto-detect / N1M / generic: Name, Email, Location
+      nameIdx = col(['name', 'fullname']);
+      firstNameIdx = col(['firstname', 'first']);
+      lastNameIdx = col(['lastname', 'last']);
+      emailIdx = col(['email', 'emailaddress', 'mail']);
+      locationIdx = col(['location', 'homeaddress', 'address', 'city']);
+      countryIdx = col(['country']);
+    }
+
+    // If we still can't find email, guess by position
+    if (emailIdx < 0) emailIdx = headers.findIndex(h => h.includes('mail'));
+    if (emailIdx < 0) return []; // Can't proceed without email column
+
+    for (let i = 1; i < rawLines.length; i++) {
+      const cols = parseCsvLine(rawLines[i]);
+      const email = (cols[emailIdx] || '').toLowerCase().trim();
+      if (!email || !email.includes('@')) continue;
+
+      let name = '';
+      if (nameIdx >= 0) {
+        name = cols[nameIdx] || '';
+      } else if (firstNameIdx >= 0) {
+        const first = cols[firstNameIdx] || '';
+        const last = lastNameIdx >= 0 ? (cols[lastNameIdx] || '') : '';
+        name = [first, last].filter(Boolean).join(' ');
+      }
+      name = name.trim() || email.split('@')[0];
+
+      let location = '';
+      if (locationIdx >= 0) location = cols[locationIdx] || '';
+      else if (countryIdx >= 0) location = cols[countryIdx] || '';
+
+      contacts.push({ name, email, location: location.trim() });
     }
     return contacts;
   }
@@ -3822,10 +3954,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
     if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
 
-    const { csvContent } = req.body;
+    const { csvContent, platform } = req.body;
     if (!csvContent || typeof csvContent !== 'string') return res.status(400).json({ error: "No CSV content provided" });
 
-    const parsed = parseCsvContent(csvContent);
+    const parsed = parseCsvContent(csvContent, platform || 'generic');
     if (parsed.length === 0) return res.status(400).json({ error: "No valid contacts found in CSV" });
 
     // Upsert into DB — existing emails are skipped, new ones are added permanently

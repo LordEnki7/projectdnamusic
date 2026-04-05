@@ -304,11 +304,28 @@ function MessageDraftPanel({ fanId, onClose }: { fanId: string; onClose: () => v
 
 // ─── Campaign Links Panel ──────────────────────────────────────────────────────
 
+const JOIN_URL = "https://projectdnamusic.info/join";
+
+const PLATFORMS = [
+  { name: "Instagram", ref: "?ref=instagram", color: "text-pink-400", hint: "Put in your bio link" },
+  { name: "TikTok",    ref: "?ref=tiktok",    color: "text-cyan-400",  hint: "Bio + video descriptions" },
+  { name: "YouTube",   ref: "?ref=youtube",   color: "text-red-400",   hint: "Description + pinned comment" },
+  { name: "Twitter/X", ref: "?ref=twitter",   color: "text-blue-400",  hint: "Profile bio + pinned tweet" },
+  { name: "SoundCloud",ref: "?ref=soundcloud",color: "text-orange-400",hint: "Profile description" },
+  { name: "Facebook",  ref: "?ref=facebook",  color: "text-indigo-400",hint: "Page bio + posts" },
+];
+
 function CampaignLinksPanel() {
   const { toast } = useToast();
   const [form, setForm] = useState({ campaignName: "", destinationUrl: "https://projectdnamusic.info/join", sourceMessageType: "first_touch" });
+  const [showQr, setShowQr] = useState(false);
 
   const { data: links = [] } = useQuery<CampaignLink[]>({ queryKey: ["/api/campaign-links"] });
+
+  const copyPlatformLink = (url: string, platform: string) => {
+    navigator.clipboard.writeText(url);
+    toast({ title: `${platform} link copied!`, description: "Paste it in your bio or post." });
+  };
 
   const createMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/campaign-links", form),
@@ -331,9 +348,66 @@ function CampaignLinksPanel() {
 
   return (
     <div className="space-y-4">
+
+      {/* ── Your Join Page ── */}
+      <Card className="border border-purple-500/30 bg-black/40">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-purple-300 flex items-center gap-2">
+            <ExternalLink className="w-4 h-4" /> Your Join Page — Share Everywhere
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Main URL */}
+          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/40">
+            <code className="text-cyan-400 text-xs flex-1 truncate font-mono">{JOIN_URL}</code>
+            <Button size="sm" variant="outline" className="border-purple-500/40 text-purple-300 flex-shrink-0" onClick={() => copyPlatformLink(JOIN_URL, "Join page")} data-testid="button-copy-join-url">
+              <Copy className="w-3.5 h-3.5 mr-1" /> Copy
+            </Button>
+          </div>
+
+          {/* QR code toggle */}
+          <div>
+            <Button size="sm" variant="outline" className="border-slate-600 text-slate-300 mb-3" onClick={() => setShowQr(v => !v)} data-testid="button-toggle-qr">
+              {showQr ? "Hide" : "Show"} QR Code — for merch, flyers & shows
+            </Button>
+            {showQr && (
+              <div className="flex flex-col items-center gap-2">
+                <div className="p-2 bg-white rounded-lg">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(JOIN_URL)}`}
+                    alt="QR code for join page"
+                    className="w-40 h-40 rounded"
+                    data-testid="img-qr-code"
+                  />
+                </div>
+                <p className="text-slate-500 text-xs">Right-click → Save image → Print on merch, stickers, flyers</p>
+              </div>
+            )}
+          </div>
+
+          {/* Platform quick-copy */}
+          <div className="space-y-1.5">
+            <p className="text-xs text-slate-500 uppercase tracking-wider font-medium">Platform-specific links (tracked)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+              {PLATFORMS.map(p => (
+                <button
+                  key={p.name}
+                  onClick={() => copyPlatformLink(JOIN_URL + p.ref, p.name)}
+                  data-testid={`button-copy-${p.name.toLowerCase().replace(/\//g, '-').replace(/\s/g, '')}`}
+                  className="flex flex-col items-start p-2 rounded-lg bg-slate-900/50 border border-slate-700/40 hover:border-slate-600 transition-colors text-left"
+                >
+                  <span className={`text-xs font-semibold ${p.color}`}>{p.name}</span>
+                  <span className="text-slate-600 text-xs">{p.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="border border-cyan-500/20 bg-black/40">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm text-cyan-300 flex items-center gap-2"><Link2 className="w-4 h-4" /> Create Tracking Link</CardTitle>
+          <CardTitle className="text-sm text-cyan-300 flex items-center gap-2"><Link2 className="w-4 h-4" /> Create Custom Tracking Link</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <Input placeholder="Campaign name (e.g. 'First touch June batch')" value={form.campaignName} onChange={e => setForm(f => ({ ...f, campaignName: e.target.value }))} className="bg-black/40 border-cyan-500/30 text-white" data-testid="input-campaign-name" />

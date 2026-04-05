@@ -136,6 +136,7 @@ function CampaignTab() {
   // CSV upload state
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadPlatform, setUploadPlatform] = useState('generic');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Cached contacts via TanStack Query — survives tab switching
@@ -276,7 +277,7 @@ function CampaignTab() {
     setUploadStatus(null);
     try {
       const text = await file.text();
-      const res = await apiRequest('POST', '/api/admin/campaign/upload-csv', { csvContent: text });
+      const res = await apiRequest('POST', '/api/admin/campaign/upload-csv', { csvContent: text, platform: uploadPlatform });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
       const data = await res.json();
       setUploadStatus(`Uploaded successfully — ${data.count} contacts loaded.`);
@@ -678,12 +679,38 @@ function CampaignTab() {
       {activeSection === 'upload' && (
         <div className="space-y-4">
           <Card>
-            <CardContent className="pt-6 space-y-4">
-              <h3 className="text-white font-semibold">Upload New Fan List</h3>
-              <p className="text-slate-400 text-sm">
-                Upload a CSV file to replace the current fan list. Format should have columns:
-                <code className="ml-1 bg-slate-800 px-1.5 py-0.5 rounded text-xs text-purple-300">Name, E-mail, Home Address</code>
-              </p>
+            <CardContent className="pt-6 space-y-5">
+              <div>
+                <h3 className="text-white font-semibold mb-1">Import Fan List from Another Platform</h3>
+                <p className="text-slate-400 text-sm">Upload any CSV — new contacts are added, duplicates skipped automatically.</p>
+              </div>
+
+              {/* Platform preset selector */}
+              <div className="space-y-2">
+                <p className="text-slate-300 text-xs font-medium uppercase tracking-wider">Platform / Source</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: 'generic', label: 'Generic / N1M', hint: 'Name, Email, Location' },
+                    { id: 'bandcamp', label: 'Bandcamp', hint: 'Name, Email, Country' },
+                    { id: 'patreon', label: 'Patreon', hint: 'Full Name, Email, Status' },
+                    { id: 'distrokid', label: 'DistroKid', hint: 'First, Last, Email, Country' },
+                    { id: 'mailchimp', label: 'Mailchimp', hint: 'Fname, Lname, Email' },
+                    { id: 'generic', label: 'Other / Auto-detect', hint: 'Any CSV with Email column' },
+                  ].filter((p, i, arr) => arr.findIndex(x => x.id === p.id && x.label === p.label) === i).map(preset => (
+                    <button
+                      key={preset.id + preset.label}
+                      onClick={() => setUploadPlatform(preset.id)}
+                      data-testid={`button-platform-${preset.id}`}
+                      className={`text-left p-3 rounded-lg border text-sm transition-colors ${uploadPlatform === preset.id && preset.label !== 'Other / Auto-detect'
+                        ? 'border-purple-500/60 bg-purple-900/30 text-white'
+                        : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:border-slate-600'}`}
+                    >
+                      <div className="font-medium text-inherit">{preset.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{preset.hint}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div
                 className="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center hover-elevate cursor-pointer"
@@ -691,7 +718,7 @@ function CampaignTab() {
                 data-testid="button-csv-upload-area">
                 <Mail className="w-10 h-10 text-slate-600 mx-auto mb-3" />
                 <p className="text-white font-medium mb-1">Click to select a CSV file</p>
-                <p className="text-slate-500 text-sm">Supports any CSV with Name, Email, Location columns</p>
+                <p className="text-slate-500 text-sm">Platform: <span className="text-purple-400 font-medium capitalize">{uploadPlatform}</span> — columns auto-mapped</p>
                 <input
                   ref={fileInputRef} type="file" accept=".csv" className="hidden"
                   onChange={handleFileUpload} data-testid="input-csv-file"
@@ -700,7 +727,7 @@ function CampaignTab() {
 
               {isUploading && (
                 <div className="flex items-center gap-2 text-yellow-400 text-sm">
-                  <RefreshCw className="w-4 h-4 animate-spin" /> Uploading and parsing contacts…
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Parsing and importing contacts…
                 </div>
               )}
               {uploadStatus && (
@@ -709,9 +736,18 @@ function CampaignTab() {
                 </div>
               )}
 
-              <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-700/50">
-                <p className="text-slate-300 text-xs font-medium mb-1">Expected CSV format:</p>
-                <pre className="text-slate-500 text-xs">{`Name,E-mail,Home Address\nJohn Smith,john@email.com,United States New York\nJane Doe,jane@email.com,United Kingdom London`}</pre>
+              <div className="grid sm:grid-cols-2 gap-3 text-xs">
+                {[
+                  { platform: 'Bandcamp', cols: 'Name, Email, Country, ...' },
+                  { platform: 'Patreon', cols: 'Full Name, Email, Status, ...' },
+                  { platform: 'DistroKid', cols: 'First Name, Last Name, Email, ...' },
+                  { platform: 'Mailchimp', cols: 'First Name, Last Name, Email Address, ...' },
+                ].map(({ platform, cols }) => (
+                  <div key={platform} className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/50">
+                    <span className="text-purple-400 font-medium">{platform}:</span>
+                    <span className="text-slate-500 ml-1">{cols}</span>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
