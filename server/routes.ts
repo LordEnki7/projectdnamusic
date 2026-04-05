@@ -3737,6 +3737,209 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const { registerFanAgentRoutes } = await import("./fanAgents");
   registerFanAgentRoutes(app);
 
+  // ─── Fan Email Campaign System ───────────────────────────────────────────
+  // In-memory campaign state (single active campaign at a time)
+  const campaignState: {
+    status: 'idle' | 'running' | 'done' | 'error';
+    total: number; sent: number; failed: number; startedAt: string | null; finishedAt: string | null; lastError: string | null;
+  } = { status: 'idle', total: 0, sent: 0, failed: 0, startedAt: null, finishedAt: null, lastError: null };
+
+  function parseFanCsv(): { name: string; email: string; location: string }[] {
+    const fsSync = require('fs');
+    const csvPath = 'attached_assets/google_1775412967207.csv';
+    if (!fsSync.existsSync(csvPath)) return [];
+    const lines = fsSync.readFileSync(csvPath, 'utf8').split('\n').filter(Boolean);
+    const contacts: { name: string; email: string; location: string }[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      // CSV: Name,E-mail,Home Address — address may contain commas; email is always col 1
+      const firstComma = line.indexOf(',');
+      const secondComma = line.indexOf(',', firstComma + 1);
+      if (firstComma === -1 || secondComma === -1) continue;
+      const name = line.substring(0, firstComma).trim();
+      const email = line.substring(firstComma + 1, secondComma).trim().toLowerCase();
+      const location = line.substring(secondComma + 1).trim();
+      if (!email.includes('@')) continue;
+      contacts.push({ name, email, location });
+    }
+    return contacts;
+  }
+
+  function buildCampaignHtml(firstName: string): string {
+    return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#05050f;font-family:sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <p style="color:#7c3aed;font-size:11px;letter-spacing:3px;text-transform:uppercase;font-weight:700;margin:0 0 12px;">Shakim &amp; Project DNA</p>
+      <div style="width:48px;height:2px;background:linear-gradient(90deg,#7c3aed,#06b6d4);margin:0 auto;"></div>
+    </div>
+    <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:0 0 8px;">Hey ${firstName},</h1>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 16px;">
+      First off… I just want to say <strong style="color:#ffffff;">thank you</strong>.
+    </p>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 16px;">
+      For real.
+    </p>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 16px;">
+      Out of all the music out there, you chose to tap in with me and rock with what I'm creating — and that means more than you probably know. You've been part of this journey already… and I don't take that lightly.
+    </p>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 24px;">
+      But now… we're stepping into something bigger.
+    </p>
+    <div style="background:linear-gradient(135deg,#7c3aed22,#06b6d422);border:1px solid #7c3aed44;border-radius:12px;padding:24px;margin:0 0 24px;">
+      <p style="color:#ffffff;font-size:16px;line-height:1.7;margin:0 0 12px;">
+        I've officially built out a new home for everything — music, exclusives, updates, and the full <strong>Shakim &amp; Project DNA</strong> experience.
+      </p>
+      <div style="text-align:center;margin:20px 0;">
+        <a href="https://projectdnamusic.info" style="display:inline-block;padding:16px 40px;background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:16px;letter-spacing:0.5px;">
+          projectdnamusic.info
+        </a>
+      </div>
+      <p style="color:#94a3b8;font-size:14px;text-align:center;margin:0;">This isn't just another website.</p>
+    </div>
+    <p style="color:#ffffff;font-size:16px;font-weight:600;margin:0 0 12px;">This is where:</p>
+    <ul style="color:#94a3b8;font-size:16px;line-height:2;margin:0 0 24px;padding-left:20px;">
+      <li>I drop <strong style="color:#ffffff;">exclusive music</strong> you won't hear anywhere else</li>
+      <li>You get <strong style="color:#ffffff;">early access</strong> to new releases</li>
+      <li>You become part of the real <strong style="color:#ffffff;">Project DNA movement</strong></li>
+    </ul>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 24px;">
+      I wanted you to be one of the <strong style="color:#ffffff;">FIRST</strong> to tap in because you've already been showing love from the beginning.
+    </p>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 8px;">So when you get a moment…</p>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 16px;">Go check it out and take a second to:</p>
+    <ul style="color:#94a3b8;font-size:16px;line-height:2;margin:0 0 24px;padding-left:20px;">
+      <li>Listen to the featured tracks</li>
+      <li>Join the list so I can send you exclusive drops directly</li>
+      <li>Let me know what you think</li>
+    </ul>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 16px;">
+      We're building something real here… not just music, but a whole frequency shift.
+    </p>
+    <p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+      And I want you with me on this.
+    </p>
+    <div style="border-top:1px solid #1e293b;padding-top:24px;margin-top:24px;">
+      <p style="color:#ffffff;font-size:15px;font-weight:600;margin:0 0 4px;">Much love always,</p>
+      <p style="color:#7c3aed;font-size:17px;font-weight:700;margin:0 0 4px;">Shawn "Shakim" Williams</p>
+      <p style="color:#64748b;font-size:13px;margin:0 0 20px;">Shakim &amp; Project DNA</p>
+      <p style="color:#475569;font-size:13px;font-style:italic;margin:0;">
+        P.S. The best music I'm dropping next won't be on N1M… it's going straight to the site 👀
+      </p>
+    </div>
+    <div style="text-align:center;margin-top:32px;padding-top:24px;border-top:1px solid #0f172a;">
+      <a href="https://projectdnamusic.info" style="color:#7c3aed;font-size:13px;text-decoration:none;">projectdnamusic.info</a>
+      <p style="color:#334155;font-size:11px;margin:8px 0 0;">You're receiving this because you previously supported Shakim &amp; Project DNA. To unsubscribe, reply with "unsubscribe".</p>
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
+  app.get("/api/admin/campaign/status", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
+    const contacts = parseFanCsv();
+    res.json({ ...campaignState, contactCount: contacts.length });
+  });
+
+  app.post("/api/admin/campaign/send", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
+    if (campaignState.status === 'running') return res.status(409).json({ error: "Campaign already running" });
+
+    const contacts = parseFanCsv();
+    if (contacts.length === 0) return res.status(400).json({ error: "No contacts found in CSV" });
+
+    // Get Resend client
+    let resendApiKey: string | null = null;
+    let fromEmail = 'Shakim <noreply@projectdnamusic.info>';
+    try {
+      const hostname = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+      const connRes = await fetch(`https://${hostname}/api/v2/connection?include_secrets=true&connector_names=resend`, {
+        headers: { 'X-Replit-Identity': process.env.REPLIT_IDENTITY || '' }
+      });
+      if (connRes.ok) {
+        const data = await connRes.json() as { connections?: { settings?: { api_key?: string; from_email?: string } }[] };
+        const conn = data.connections?.[0];
+        if (conn?.settings?.api_key) {
+          resendApiKey = conn.settings.api_key;
+          if (conn.settings.from_email) fromEmail = conn.settings.from_email;
+        }
+      }
+    } catch { /* ignore */ }
+
+    if (!resendApiKey) return res.status(500).json({ error: "Resend not configured" });
+
+    // Start campaign async
+    campaignState.status = 'running';
+    campaignState.total = contacts.length;
+    campaignState.sent = 0;
+    campaignState.failed = 0;
+    campaignState.startedAt = new Date().toISOString();
+    campaignState.finishedAt = null;
+    campaignState.lastError = null;
+
+    res.json({ message: "Campaign started", total: contacts.length });
+
+    // Run in background — batch 50 at a time with 1.5s between batches
+    (async () => {
+      const { Resend } = await import('resend');
+      const client = new Resend(resendApiKey!);
+      const BATCH = 50;
+
+      for (let i = 0; i < contacts.length; i += BATCH) {
+        if (campaignState.status !== 'running') break;
+        const batch = contacts.slice(i, i + BATCH);
+        for (const contact of batch) {
+          if (campaignState.status !== 'running') break;
+          const firstName = contact.name.split(' ')[0] || contact.name;
+          try {
+            await client.emails.send({
+              from: fromEmail,
+              to: contact.email,
+              subject: "We stepped into something bigger — come check it out",
+              html: buildCampaignHtml(firstName),
+              replyTo: 'shakim@projectdnamusic.info',
+            });
+            campaignState.sent++;
+          } catch (err: any) {
+            campaignState.failed++;
+            campaignState.lastError = err?.message || 'Unknown error';
+          }
+          // Small delay between individual emails to respect rate limits
+          await new Promise(r => setTimeout(r, 120));
+        }
+        // Delay between batches
+        if (i + BATCH < contacts.length) await new Promise(r => setTimeout(r, 2000));
+      }
+
+      campaignState.status = 'done';
+      campaignState.finishedAt = new Date().toISOString();
+    })().catch(err => {
+      campaignState.status = 'error';
+      campaignState.lastError = err?.message || 'Campaign failed';
+      campaignState.finishedAt = new Date().toISOString();
+    });
+  });
+
+  app.post("/api/admin/campaign/cancel", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
+    if (campaignState.status === 'running') {
+      campaignState.status = 'done';
+      campaignState.finishedAt = new Date().toISOString();
+    }
+    res.json({ message: "Stopped" });
+  });
+
   registerAIAgentRoutes(app);
 
   const httpServer = createServer(app);

@@ -9,7 +9,7 @@ import AdminAgentHub from "@/components/AdminAgentHub";
 import FanPipeline from "@/components/FanPipeline";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import AnimatedLogo from "@/components/AnimatedLogo";
@@ -104,6 +104,209 @@ const merchFormSchema = insertMerchandiseSchema.extend({
 type SongFormData = z.infer<typeof songFormSchema>;
 type BeatFormData = z.infer<typeof beatFormSchema>;
 type MerchFormData = z.infer<typeof merchFormSchema>;
+
+interface CampaignStatus {
+  status: 'idle' | 'running' | 'done' | 'error';
+  total: number; sent: number; failed: number;
+  startedAt: string | null; finishedAt: string | null;
+  lastError: string | null; contactCount: number;
+}
+
+function CampaignTab() {
+  const { toast } = useToast();
+  const [campaign, setCampaign] = useState<CampaignStatus | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const pollRef = useRef<number | null>(null);
+
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/campaign/status');
+      if (res.ok) setCampaign(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
+  useEffect(() => {
+    if (campaign?.status === 'running') {
+      pollRef.current = window.setInterval(fetchStatus, 2000);
+    } else {
+      if (pollRef.current) clearInterval(pollRef.current);
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [campaign?.status]);
+
+  const handleSend = async () => {
+    if (!confirm(`This will send the campaign email to all ${campaign?.contactCount ?? 1029} fans. Are you sure?`)) return;
+    setIsSending(true);
+    try {
+      const res = await apiRequest('POST', '/api/admin/campaign/send', {});
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to start');
+      }
+      toast({ title: "Campaign started", description: "Emails are sending in the background." });
+      setTimeout(fetchStatus, 1000);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    await apiRequest('POST', '/api/admin/campaign/cancel', {});
+    fetchStatus();
+  };
+
+  const progress = campaign && campaign.total > 0
+    ? Math.round(((campaign.sent + campaign.failed) / campaign.total) * 100) : 0;
+
+  const statusColor = {
+    idle: 'text-slate-400', running: 'text-yellow-400', done: 'text-green-400', error: 'text-red-400'
+  }[campaign?.status ?? 'idle'];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <Mail className="w-5 h-5 text-purple-400" /> Fan Email Campaign
+          </h2>
+          <p className="text-slate-400 text-sm mt-1">
+            Send Shakim's personal message to all {campaign?.contactCount ?? 1029} fans from your N1M list.
+          </p>
+        </div>
+        <Badge variant="outline" className={`${statusColor} border-current text-sm`}>
+          {campaign?.status === 'running' ? 'Sending…' :
+           campaign?.status === 'done' ? 'Completed' :
+           campaign?.status === 'error' ? 'Error' : 'Ready'}
+        </Badge>
+      </div>
+
+      {/* Contact list summary */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="text-center">
+              <p className="text-3xl font-bold text-white">{campaign?.contactCount ?? 1029}</p>
+              <p className="text-slate-400 text-xs mt-1">Total Contacts</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold text-green-400">{campaign?.sent ?? 0}</p>
+              <p className="text-slate-400 text-xs mt-1">Sent</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold text-red-400">{campaign?.failed ?? 0}</p>
+              <p className="text-slate-400 text-xs mt-1">Failed</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold text-purple-400">{progress}%</p>
+              <p className="text-slate-400 text-xs mt-1">Progress</p>
+            </div>
+          </div>
+
+          {campaign?.status === 'running' && (
+            <div className="mt-6">
+              <div className="flex justify-between text-xs text-slate-400 mb-1">
+                <span>Sending emails…</span>
+                <span>{campaign.sent + campaign.failed} / {campaign.total}</span>
+              </div>
+              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full transition-all duration-500"
+                  style={{ width: `${progress}%` }} />
+              </div>
+              <p className="text-slate-500 text-xs mt-2">
+                Sending in batches of 50 — estimated {Math.ceil(((campaign.total - campaign.sent - campaign.failed) * 0.12) / 60)} min remaining
+              </p>
+            </div>
+          )}
+
+          {campaign?.status === 'done' && (
+            <div className="mt-6 p-4 rounded-xl bg-green-950/30 border border-green-500/30">
+              <p className="text-green-400 font-semibold">Campaign complete</p>
+              <p className="text-slate-400 text-sm mt-1">
+                {campaign.sent} emails delivered successfully. {campaign.failed > 0 ? `${campaign.failed} failed.` : ''}
+              </p>
+              {campaign.finishedAt && (
+                <p className="text-slate-500 text-xs mt-1">Finished {new Date(campaign.finishedAt).toLocaleString()}</p>
+              )}
+            </div>
+          )}
+
+          {campaign?.lastError && campaign.status === 'error' && (
+            <div className="mt-4 p-3 rounded-lg bg-red-950/30 border border-red-500/30">
+              <p className="text-red-400 text-sm">{campaign.lastError}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Email preview */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-semibold">Email Preview</h3>
+            <Button variant="ghost" size="sm" onClick={() => setShowPreview(!showPreview)} data-testid="button-campaign-preview">
+              {showPreview ? 'Hide' : 'Show preview'}
+            </Button>
+          </div>
+          <div className="space-y-2 text-sm">
+            <div className="flex gap-2">
+              <span className="text-slate-500 w-16 flex-shrink-0">From:</span>
+              <span className="text-slate-300">Shakim &lt;noreply@projectdnamusic.info&gt;</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-slate-500 w-16 flex-shrink-0">Subject:</span>
+              <span className="text-slate-300">We stepped into something bigger — come check it out</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-slate-500 w-16 flex-shrink-0">To:</span>
+              <span className="text-slate-300">{campaign?.contactCount ?? 1029} fans (personalized by first name)</span>
+            </div>
+          </div>
+          {showPreview && (
+            <div className="mt-4 p-4 rounded-xl bg-slate-900/60 border border-slate-700/50 text-sm text-slate-300 space-y-3 leading-relaxed">
+              <p className="text-white font-semibold">Hey [First Name],</p>
+              <p>First off… I just want to say <strong>thank you</strong>. For real.</p>
+              <p>Out of all the music out there, you chose to tap in with me and rock with what I'm creating — and that means more than you probably know.</p>
+              <p>But now… we're stepping into something bigger.</p>
+              <p>I've officially built out a new home for everything — music, exclusives, updates, and the full <strong>Shakim & Project DNA</strong> experience.</p>
+              <p className="text-purple-400 font-semibold">→ projectdnamusic.info</p>
+              <p className="text-slate-500 text-xs">… + full message with bullet points, CTA button, and P.S. about N1M</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {campaign?.status !== 'running' ? (
+          <Button onClick={handleSend} disabled={isSending}
+            className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white border-0 px-8"
+            data-testid="button-campaign-send">
+            {isSending ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Starting…</> : <><Send className="w-4 h-4 mr-2" />Send to All {campaign?.contactCount ?? 1029} Fans</>}
+          </Button>
+        ) : (
+          <Button onClick={handleCancel} variant="outline" className="border-red-500/50 text-red-400"
+            data-testid="button-campaign-cancel">
+            Stop Campaign
+          </Button>
+        )}
+        <Button variant="ghost" onClick={fetchStatus} size="sm" data-testid="button-campaign-refresh">
+          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      <p className="text-slate-600 text-xs">
+        Emails are sent in batches of 50 with short delays between each batch to ensure clean delivery and avoid spam filters. The process runs in the background — you can navigate away safely.
+      </p>
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -419,14 +622,18 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6">
+          <TabsList className="grid w-full grid-cols-4 sm:grid-cols-7">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-            <TabsTrigger value="content" data-testid="tab-content">Add Content</TabsTrigger>
+            <TabsTrigger value="content" data-testid="tab-content">Content</TabsTrigger>
             <TabsTrigger value="orders" data-testid="tab-orders">Orders</TabsTrigger>
             <TabsTrigger value="engagement" data-testid="tab-engagement">Engagement</TabsTrigger>
+            <TabsTrigger value="campaigns" data-testid="tab-campaigns" className="flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5" />
+              Campaigns
+            </TabsTrigger>
             <TabsTrigger value="pipeline" data-testid="tab-pipeline" className="flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" />
-              Fan Pipeline
+              Pipeline
             </TabsTrigger>
             <TabsTrigger value="agents" data-testid="tab-agents" className="flex items-center gap-1.5">
               <Bot className="w-3.5 h-3.5" />
@@ -1328,6 +1535,10 @@ export default function AdminDashboard() {
               )}
             </CardContent>
           </Card>
+          </TabsContent>
+
+          <TabsContent value="campaigns" className="space-y-6">
+            <CampaignTab />
           </TabsContent>
 
           <TabsContent value="pipeline" className="space-y-6">
