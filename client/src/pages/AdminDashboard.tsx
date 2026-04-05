@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users, Mic2, Send } from "lucide-react";
 import AdminAgentHub from "@/components/AdminAgentHub";
 import FanPipeline from "@/components/FanPipeline";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useRef } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -147,6 +147,11 @@ function CampaignTab() {
     setLoadingContacts(true);
     try {
       const res = await fetch(`/api/admin/campaign/contacts?page=${page}&limit=50&search=${encodeURIComponent(q)}`, { credentials: 'include' });
+      if (res.status === 401) {
+        toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
+        setLocation('/login');
+        return;
+      }
       if (res.ok) {
         const data: ContactsResponse = await res.json();
         setContacts(data.contacts);
@@ -475,8 +480,9 @@ function CampaignTab() {
 }
 
 export default function AdminDashboard() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [recoverEmail, setRecoverEmail] = useState('');
   const [isRecovering, setIsRecovering] = useState(false);
 
@@ -775,7 +781,7 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen py-12 px-4">
       <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex flex-col items-center gap-6">
+        <div className="relative flex flex-col items-center gap-6">
           <Link href="/">
             <AnimatedLogo className="h-20 w-auto cursor-pointer" />
           </Link>
@@ -785,6 +791,16 @@ export default function AdminDashboard() {
             </h1>
             <p className="text-muted-foreground">Manage content, orders, fan engagement, and site settings</p>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => { await logout(); setLocation('/login'); }}
+            data-testid="button-admin-signout"
+            className="absolute top-0 right-0 flex items-center gap-2"
+          >
+            <User className="w-4 h-4" />
+            Sign Out
+          </Button>
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
