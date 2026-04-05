@@ -52,6 +52,10 @@ async function getUncachableResendClient() {
   };
 }
 
+export async function getResendClient() {
+  return getUncachableResendClient();
+}
+
 export interface OrderItem {
   title: string;
   itemType: string;

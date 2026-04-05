@@ -880,27 +880,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send personalized follow-up email when onboarding completes (step 3)
       if (onboardingStep === 3 && updated.email) {
         try {
-          const hostname = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
-          const connRes = await fetch(`https://${hostname}/api/v2/connection?include_secrets=true&connector_names=resend`, {
-            headers: { 'X-Replit-Identity': process.env.REPLIT_IDENTITY || '' }
-          }).catch(() => null);
-          if (connRes && connRes.ok) {
-            const connData = await connRes.json() as { connections?: { settings?: { api_key?: string; from_email?: string } }[] };
-            const conn = connData.connections?.[0];
-            if (conn?.settings?.api_key) {
-              const { Resend } = await import('resend');
-              const client = new Resend(conn.settings.api_key);
-              const fromEmail = conn.settings.from_email || 'Shakim <noreply@projectdnamusic.info>';
-              const vibeLines: Record<string, string> = {
-                smooth: "You said smooth tracks hit you hardest. Check out some of the soulful cuts on the catalog — those are the ones I put the most feeling into.",
-                deep: "You said deep tracks hit you hardest. Some of my most personal work is in there — the kind of music you listen to when everything gets quiet.",
-                soulful: "You said soulful tracks hit you hardest. That right there is the core of what Project DNA is. Real emotion, real music.",
-                "straight energy": "You said straight energy hits you hardest. Then you need to hear the harder cuts — I made those for the ones who need something that moves.",
-              };
-              const vibeLine = vibeLines[(updated.musicVibe || '').toLowerCase()] || "Whatever you're feeling, there's something in the catalog built for that moment.";
-              const cityLine = updated.city ? `Shout out to ${updated.city} — appreciate you tuning in from there.` : "Appreciate you tuning in for real.";
+          const { getResendClient } = await import('./email');
+          const { client, fromEmail } = await getResendClient();
+          const vibeLines: Record<string, string> = {
+            smooth: "You said smooth tracks hit you hardest. Check out some of the soulful cuts on the catalog — those are the ones I put the most feeling into.",
+            deep: "You said deep tracks hit you hardest. Some of my most personal work is in there — the kind of music you listen to when everything gets quiet.",
+            soulful: "You said soulful tracks hit you hardest. That right there is the core of what Project DNA is. Real emotion, real music.",
+            "straight energy": "You said straight energy hits you hardest. Then you need to hear the harder cuts — I made those for the ones who need something that moves.",
+          };
+          const vibeLine = vibeLines[(updated.musicVibe || '').toLowerCase()] || "Whatever you're feeling, there's something in the catalog built for that moment.";
+          const cityLine = updated.city ? `Shout out to ${updated.city} — appreciate you tuning in from there.` : "Appreciate you tuning in for real.";
 
-              await client.emails.send({
+          await client.emails.send({
                 from: fromEmail,
                 to: updated.email,
                 subject: "You're in — Project DNA",
@@ -931,9 +922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     </p>
                   </div>
                 `,
-              });
-            }
-          }
+          });
         } catch (emailErr) {
           console.error("Onboarding email error:", emailErr);
         }
@@ -3948,25 +3937,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const contacts = await getAllFanContacts();
     if (contacts.length === 0) return res.status(400).json({ error: "No contacts found" });
 
-    // Get Resend client
-    let resendApiKey: string | null = null;
+    // Get Resend client using the same working credentials as the rest of the app
+    let resendClient: import('resend').Resend;
     let fromEmail = 'Shakim <noreply@projectdnamusic.info>';
     try {
-      const hostname = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
-      const connRes = await fetch(`https://${hostname}/api/v2/connection?include_secrets=true&connector_names=resend`, {
-        headers: { 'X-Replit-Identity': process.env.REPLIT_IDENTITY || '' }
-      });
-      if (connRes.ok) {
-        const data = await connRes.json() as { connections?: { settings?: { api_key?: string; from_email?: string } }[] };
-        const conn = data.connections?.[0];
-        if (conn?.settings?.api_key) {
-          resendApiKey = conn.settings.api_key;
-          if (conn.settings.from_email) fromEmail = conn.settings.from_email;
-        }
-      }
-    } catch { /* ignore */ }
-
-    if (!resendApiKey) return res.status(500).json({ error: "Resend not configured" });
+      const { getResendClient } = await import('./email');
+      const { client, fromEmail: fe } = await getResendClient();
+      resendClient = client;
+      if (fe) fromEmail = fe;
+    } catch (err) {
+      return res.status(500).json({ error: "Resend not configured — check Resend integration in Replit" });
+    }
 
     // Start campaign async
     campaignState.status = 'running';
@@ -3981,8 +3962,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Run in background — batch 50 at a time with 1.5s between batches
     (async () => {
-      const { Resend } = await import('resend');
-      const client = new Resend(resendApiKey!);
       const BATCH = 50;
 
       for (let i = 0; i < contacts.length; i += BATCH) {
@@ -3992,7 +3971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (campaignState.status !== 'running') break;
           const firstName = contact.name.split(' ')[0] || contact.name;
           try {
-            await client.emails.send({
+            await resendClient.emails.send({
               from: fromEmail,
               to: contact.email,
               subject: "We stepped into something bigger — come check it out",
