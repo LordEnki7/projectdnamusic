@@ -13,7 +13,7 @@ import { useForm } from 'react-hook-form';
 import {
   Radio, Play, Pause, Volume2, VolumeX, SkipForward, SkipBack,
   Music, ListMusic, Disc3, Wifi, WifiOff, ChevronRight, Lock,
-  Mic2, Send, CheckCircle
+  Mic2, Send, CheckCircle, Loader2
 } from 'lucide-react';
 
 interface NowPlayingData {
@@ -65,81 +65,146 @@ function formatTime(seconds: number) {
 function DNARadioPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const [connected, setConnected] = useState(false);
   const [localPosition, setLocalPosition] = useState(0);
   const [isBumper, setIsBumper] = useState(false);
+  const [npData, setNpData] = useState<NowPlayingData | null>(null);
   const positionRef = useRef(0);
   const tickIntervalRef = useRef<number | null>(null);
   const slotTimerRef = useRef<number | null>(null);
+  const stallTimerRef = useRef<number | null>(null);
   const connectedRef = useRef(false);
   const currentUrlRef = useRef('');
 
-  const { data, refetch } = useQuery<NowPlayingData>({
+  const { refetch } = useQuery<NowPlayingData>({
     queryKey: ['/api/radio/now-playing'],
     refetchInterval: false, staleTime: 0,
+    enabled: false,
   });
 
-  const song = data?.type === 'song' ? data.song : null;
-  const bumper = data?.type === 'bumper' ? data.bumper : null;
+  const song = npData?.type === 'song' ? npData.song : null;
+  const bumper = npData?.type === 'bumper' ? npData.bumper : null;
   const displayTitle = isBumper ? (bumper?.title || 'Station Break') : (song?.title || 'Tune In to Start');
   const displayArtist = isBumper ? 'DNA Radio' : (song?.artist || 'Project DNA');
   const coverArt = song?.coverArt;
 
+  const clearStallTimer = () => {
+    if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+  };
+
   const syncToStation = useCallback(async () => {
     if (!connectedRef.current) return;
-    const result = await refetch();
-    const np = result.data;
-    if (!np || !audioRef.current || !connectedRef.current) return;
+    setIsBuffering(true);
+
+    let np: NowPlayingData | null = null;
+    try {
+      const result = await refetch();
+      np = result.data ?? null;
+    } catch {
+      np = null;
+    }
+
+    if (!np || !audioRef.current || !connectedRef.current) {
+      setIsBuffering(false);
+      return;
+    }
+
     const audio = audioRef.current;
     const audioUrl = np.type === 'bumper' ? np.bumper?.audioUrl : np.song?.audioUrl;
-    if (!audioUrl) return;
+    if (!audioUrl) { setIsBuffering(false); return; }
+
     setIsBumper(np.type === 'bumper');
+    setNpData(np);
 
-    // Fix: compare path only (audio.src is always absolute, audioUrl is relative)
-    const currentPath = currentUrlRef.current;
-    const needsLoad = currentPath !== audioUrl;
-
+    // Only reload if the track actually changed
+    const needsLoad = currentUrlRef.current !== audioUrl;
     if (needsLoad) {
       currentUrlRef.current = audioUrl;
       audio.src = audioUrl;
+      audio.preload = 'auto';
       audio.load();
     }
     audio.volume = isMuted ? 0 : volume;
 
-    // Clear previous slot timer
     if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
 
-    const seek = () => {
+    const startPlay = () => {
       if (!connectedRef.current) return;
-      const target = Math.min(np.positionSeconds, audio.duration || np.positionSeconds);
-      audio.currentTime = target;
-      positionRef.current = target;
-      setLocalPosition(target);
-      audio.play()
-        .then(() => { setIsPlaying(true); setConnected(true); })
-        .catch(err => { console.warn('Radio play error:', err); });
+      // Start from beginning — no mid-song seek on WAV files (they require
+      // downloading all bytes up to the seek point, causing long stalls)
+      positionRef.current = 0;
+      setLocalPosition(0);
 
-      // Schedule next sync at slot boundary
-      const ms = np.secondsUntilNext * 1000 + 800;
-      slotTimerRef.current = window.setTimeout(() => syncToStation(), ms);
+      audio.play()
+        .then(() => {
+          setIsPlaying(true);
+          setIsBuffering(false);
+          setConnected(true);
+          clearStallTimer();
+          // Schedule next sync at slot boundary + buffer
+          const ms = Math.max(np!.secondsUntilNext * 1000 + 1000, 3000);
+          slotTimerRef.current = window.setTimeout(() => syncToStation(), ms);
+        })
+        .catch(err => {
+          console.warn('Radio play failed:', err);
+          setIsBuffering(false);
+        });
     };
 
-    if (needsLoad) {
-      audio.addEventListener('canplay', seek, { once: true });
+    // If already buffered enough, play immediately; else wait for canplay
+    if (!needsLoad && audio.readyState >= 3) {
+      startPlay();
     } else {
-      seek();
+      audio.addEventListener('canplay', startPlay, { once: true });
     }
   }, [refetch, volume, isMuted]);
 
-  // Wire up ended event — auto-advance when audio finishes
+  // Wire up audio events
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+
     const onEnded = () => { if (connectedRef.current) syncToStation(); };
+
+    const onWaiting = () => {
+      if (!connectedRef.current) return;
+      setIsBuffering(true);
+      // If buffering takes more than 8s, reload and reconnect
+      clearStallTimer();
+      stallTimerRef.current = window.setTimeout(() => {
+        if (connectedRef.current) {
+          currentUrlRef.current = ''; // Force reload on next sync
+          syncToStation();
+        }
+      }, 8000);
+    };
+
+    const onPlaying = () => {
+      setIsBuffering(false);
+      clearStallTimer();
+    };
+
+    const onError = () => {
+      if (!connectedRef.current) return;
+      setIsBuffering(false);
+      // Wait 2s then retry
+      setTimeout(() => { if (connectedRef.current) syncToStation(); }, 2000);
+    };
+
     audio.addEventListener('ended', onEnded);
-    return () => audio.removeEventListener('ended', onEnded);
+    audio.addEventListener('waiting', onWaiting);
+    audio.addEventListener('playing', onPlaying);
+    audio.addEventListener('error', onError);
+
+    return () => {
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('waiting', onWaiting);
+      audio.removeEventListener('playing', onPlaying);
+      audio.removeEventListener('error', onError);
+    };
   }, [syncToStation]);
 
   useEffect(() => {
@@ -147,7 +212,7 @@ function DNARadioPlayer() {
   }, [volume, isMuted]);
 
   useEffect(() => {
-    if (isPlaying) {
+    if (isPlaying && !isBuffering) {
       tickIntervalRef.current = window.setInterval(() => {
         positionRef.current += 1;
         setLocalPosition(positionRef.current);
@@ -156,25 +221,25 @@ function DNARadioPlayer() {
       if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
     }
     return () => { if (tickIntervalRef.current) clearInterval(tickIntervalRef.current); };
-  }, [isPlaying]);
+  }, [isPlaying, isBuffering]);
 
   const handleTuneIn = () => {
     if (connectedRef.current) {
-      // Disconnect
       connectedRef.current = false;
       audioRef.current?.pause();
       setIsPlaying(false);
+      setIsBuffering(false);
       setConnected(false);
       if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
+      clearStallTimer();
     } else {
-      // Connect
       connectedRef.current = true;
       setConnected(true);
       syncToStation();
     }
   };
 
-  const slotDuration = data?.slotDurationSeconds || song?.duration || 240;
+  const slotDuration = npData?.slotDurationSeconds || song?.duration || 240;
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-purple-500/30 bg-black/60 backdrop-blur-xl">
@@ -187,9 +252,11 @@ function DNARadioPlayer() {
           </div>
           <span className="text-purple-300 font-bold tracking-widest text-sm uppercase font-mono">DNA Radio — Live Station</span>
           <Badge variant="outline" className="ml-auto border-purple-500/50 text-purple-300 text-xs">
-            {connected && isPlaying
-              ? <span className="flex items-center gap-1"><Wifi className="w-3 h-3" /> On Air</span>
-              : <span className="flex items-center gap-1"><WifiOff className="w-3 h-3" /> Offline</span>}
+            {isBuffering
+              ? <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Buffering…</span>
+              : connected && isPlaying
+                ? <span className="flex items-center gap-1"><Wifi className="w-3 h-3" /> On Air</span>
+                : <span className="flex items-center gap-1"><WifiOff className="w-3 h-3" /> Offline</span>}
           </Badge>
         </div>
 
@@ -235,11 +302,13 @@ function DNARadioPlayer() {
             </div>
 
             <div className="flex items-center gap-4 mt-6 flex-wrap justify-center md:justify-start">
-              <Button onClick={handleTuneIn} data-testid="button-radio-tune-in"
+              <Button onClick={handleTuneIn} disabled={isBuffering} data-testid="button-radio-tune-in"
                 className="px-8 bg-gradient-to-r from-purple-600 to-cyan-600 text-white border-0">
-                {connected && isPlaying
-                  ? <><Pause className="w-4 h-4 mr-2" />Disconnect</>
-                  : <><Play className="w-4 h-4 mr-2" />Tune In</>}
+                {isBuffering
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Loading…</>
+                  : connected && isPlaying
+                    ? <><Pause className="w-4 h-4 mr-2" />Disconnect</>
+                    : <><Play className="w-4 h-4 mr-2" />Tune In</>}
               </Button>
               <div className="flex items-center gap-2">
                 <Button size="icon" variant="ghost" onClick={() => setIsMuted(m => !m)} data-testid="button-radio-mute">
@@ -251,9 +320,9 @@ function DNARadioPlayer() {
               </div>
             </div>
 
-            {data && (
+            {npData && (
               <p className="text-xs text-slate-600 mt-4 font-mono">
-                {isBumper ? `Back to music in ~${formatTime(data.secondsUntilNext)}` : `Next in ~${formatTime(data.secondsUntilNext)}`} · {data.totalSongs} songs in rotation
+                {isBumper ? `Back to music in ~${formatTime(npData.secondsUntilNext)}` : `Next in ~${formatTime(npData.secondsUntilNext)}`} · {npData.totalSongs} songs in rotation
               </p>
             )}
           </div>
