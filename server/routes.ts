@@ -5,7 +5,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { registerAIAgentRoutes } from "./aiAgents";
-import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, songRequests, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
+import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, songRequests, fanContacts, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
 import { asc, eq, and, sql, inArray } from "drizzle-orm";
 import Stripe from "stripe";
 import bcrypt from "bcryptjs";
@@ -3766,17 +3766,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return contacts;
   }
 
-  function parseFanCsv(): { name: string; email: string; location: string }[] {
-    // If admin uploaded a new CSV, use that — otherwise use hardcoded list
-    const uploadedPath = 'uploads/fan_contacts.csv';
-    if (fs.existsSync(uploadedPath)) {
-      try {
-        const content = fs.readFileSync(uploadedPath, 'utf8');
-        const parsed = parseCsvContent(content);
-        if (parsed.length > 0) return parsed;
-      } catch { /* fall through to hardcoded */ }
+  // Seed the fan_contacts table from the hardcoded list on first startup
+  async function seedFanContactsIfEmpty() {
+    try {
+      const existing = await db.select({ id: fanContacts.id }).from(fanContacts).limit(1);
+      if (existing.length > 0) return; // Already seeded
+      console.log(`[Campaign] Seeding ${FAN_CONTACTS.length} fan contacts into database...`);
+      const BATCH = 100;
+      for (let i = 0; i < FAN_CONTACTS.length; i += BATCH) {
+        const batch = FAN_CONTACTS.slice(i, i + BATCH).map(c => ({
+          name: c.name,
+          email: c.email,
+          location: c.location,
+          source: 'n1m',
+        }));
+        await db.insert(fanContacts).values(batch).onConflictDoNothing();
+      }
+      console.log(`[Campaign] Seeding complete.`);
+    } catch (err) {
+      console.error('[Campaign] Seed error:', err);
     }
-    return FAN_CONTACTS;
+  }
+  seedFanContactsIfEmpty();
+
+  // Get all contacts from DB (used for sending and status)
+  async function getAllFanContacts() {
+    return db.select({
+      name: fanContacts.name,
+      email: fanContacts.email,
+      location: fanContacts.location,
+    }).from(fanContacts).orderBy(asc(fanContacts.id));
   }
 
   // Get paginated contact list
@@ -3789,7 +3808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const limit = parseInt(req.query.limit as string) || 50;
     const search = ((req.query.search as string) || '').toLowerCase();
 
-    let contacts = parseFanCsv();
+    let contacts = await getAllFanContacts();
     if (search) {
       contacts = contacts.filter(c =>
         c.name.toLowerCase().includes(search) ||
@@ -3803,7 +3822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ contacts: paginated, total, page, limit, pages: Math.ceil(total / limit) });
   });
 
-  // Upload new CSV contact list
+  // Upload new CSV — merges new contacts into the database permanently
   app.post("/api/admin/campaign/upload-csv", async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
     const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
@@ -3812,13 +3831,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { csvContent } = req.body;
     if (!csvContent || typeof csvContent !== 'string') return res.status(400).json({ error: "No CSV content provided" });
 
-    fs.mkdirSync('uploads', { recursive: true });
-    fs.writeFileSync('uploads/fan_contacts.csv', csvContent, 'utf8');
+    const parsed = parseCsvContent(csvContent);
+    if (parsed.length === 0) return res.status(400).json({ error: "No valid contacts found in CSV" });
 
-    const contacts = parseCsvContent(csvContent);
-    if (contacts.length === 0) return res.status(400).json({ error: "No valid contacts found in CSV" });
+    // Upsert into DB — existing emails are skipped, new ones are added permanently
+    const BATCH = 100;
+    let inserted = 0;
+    for (let i = 0; i < parsed.length; i += BATCH) {
+      const batch = parsed.slice(i, i + BATCH).map(c => ({
+        name: c.name,
+        email: c.email,
+        location: c.location,
+        source: 'csv_upload',
+      }));
+      const result = await db.insert(fanContacts).values(batch).onConflictDoNothing();
+      inserted += (result.rowCount ?? 0);
+    }
 
-    res.json({ message: "CSV uploaded successfully", count: contacts.length });
+    const totalNow = await db.select({ id: fanContacts.id }).from(fanContacts);
+    res.json({
+      message: `CSV uploaded — ${inserted} new contacts added, ${parsed.length - inserted} already existed.`,
+      count: totalNow.length,
+      added: inserted,
+      skipped: parsed.length - inserted,
+    });
   });
 
   function buildCampaignHtml(firstName: string): string {
@@ -3899,7 +3935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
     const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
     if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
-    const contacts = parseFanCsv();
+    const contacts = await getAllFanContacts();
     res.json({ ...campaignState, contactCount: contacts.length });
   });
 
@@ -3909,8 +3945,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
     if (campaignState.status === 'running') return res.status(409).json({ error: "Campaign already running" });
 
-    const contacts = parseFanCsv();
-    if (contacts.length === 0) return res.status(400).json({ error: "No contacts found in CSV" });
+    const contacts = await getAllFanContacts();
+    if (contacts.length === 0) return res.status(400).json({ error: "No contacts found" });
 
     // Get Resend client
     let resendApiKey: string | null = null;

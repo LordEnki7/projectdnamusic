@@ -864,3 +864,16 @@ export const songRequests = pgTable("song_requests", {
 export const insertSongRequestSchema = createInsertSchema(songRequests).omit({ id: true, createdAt: true });
 export type InsertSongRequest = z.infer<typeof insertSongRequestSchema>;
 export type SongRequest = typeof songRequests.$inferSelect;
+
+export const fanContacts = pgTable("fan_contacts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull().default(""),
+  email: text("email").notNull().unique(),
+  location: text("location").notNull().default(""),
+  source: text("source").notNull().default("n1m"),
+  createdAt: text("created_at").notNull().default(sql`now()`),
+});
+
+export const insertFanContactSchema = createInsertSchema(fanContacts).omit({ id: true, createdAt: true });
+export type InsertFanContact = z.infer<typeof insertFanContactSchema>;
+export type FanContact = typeof fanContacts.$inferSelect;
