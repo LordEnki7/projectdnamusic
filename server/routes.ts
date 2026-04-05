@@ -5,7 +5,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { registerAIAgentRoutes } from "./aiAgents";
-import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, songRequests, fanContacts, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
+import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, songRequests, fanContacts, emailSequences, emailTemplates, emailEvents, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
 import { asc, eq, and, sql, inArray } from "drizzle-orm";
 import Stripe from "stripe";
 import bcrypt from "bcryptjs";
@@ -751,6 +751,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             musicVibe: newUser[0].musicVibe,
             onboardingStep: newUser[0].onboardingStep ?? 0,
           };
+
+          // Enroll new user in welcome email sequence (fire & forget)
+          enrollUserInWelcomeSequence(newUser[0].id).catch(err =>
+            console.error('[Sequence] Enrollment error on signup:', err)
+          );
 
           res.json({ message: "Signup successful", user: userResponse });
         });
@@ -4008,6 +4013,325 @@ export async function registerRoutes(app: Express): Promise<Server> {
       campaignState.finishedAt = new Date().toISOString();
     }
     res.json({ message: "Stopped" });
+  });
+
+  // ─────────────────────────────────────────────────────
+  //  WELCOME EMAIL SEQUENCE — 5-email fan nurture system
+  // ─────────────────────────────────────────────────────
+
+  const WELCOME_SEQ_KEY = 'welcome_5_step';
+
+  function buildSequenceEmailHtml(step: number, firstName: string): string {
+    const base = `font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#ffffff;padding:40px 32px;border-radius:12px;`;
+    const logo = `<div style="text-align:center;margin-bottom:28px"><img src="https://projectdnamusic.info/media/images/logo.png" alt="Project DNA" style="height:52px;width:auto" /></div>`;
+    const footer = `<hr style="border:none;border-top:1px solid #1e293b;margin:32px 0"/><p style="color:#475569;font-size:12px;text-align:center">You're receiving this because you joined Project DNA Music. <br/>Project DNA Music LLC · projectdnamusic.info</p>`;
+    const cta = (url: string, label: string) => `<div style="text-align:center;margin:28px 0"><a href="${url}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:16px">${label}</a></div>`;
+
+    if (step === 1) return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:20px;background:#060608"><div style="${base}">${logo}<h1 style="font-size:22px;font-weight:700;margin-bottom:16px">Welcome, ${firstName}.</h1><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">You just tapped into something different.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">Project DNA isn't just music — it's a frequency. And now you're part of it.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">Start here — the full catalog, exclusive content, and everything I don't put out publicly. This is the real home base.</p>${cta('https://projectdnamusic.info/catalog','Explore the Catalog')}<p style="color:#94a3b8;line-height:1.8;margin-bottom:0">This is just the beginning. I've got more coming your way that I don't release anywhere else.</p><p style="color:#64748b;margin-top:24px">Stay locked in.<br/><strong style="color:#e2e8f0">– Shakim</strong></p>${footer}</div></body></html>`;
+
+    if (step === 2) return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:20px;background:#060608"><div style="${base}">${logo}<h1 style="font-size:22px;font-weight:700;margin-bottom:16px">${firstName}, I want you to hear something deeper…</h1><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">There are tracks in the catalog that I made in moments that most people never hear about.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">Real life. Real energy. No filter.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">When you listen — hit reply and tell me what you felt. I actually read these. That connection is the whole point of what I'm building here.</p>${cta('https://projectdnamusic.info/catalog','Listen Now')}<p style="color:#64748b;margin-top:24px">– Shakim</p>${footer}</div></body></html>`;
+
+    if (step === 3) return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:20px;background:#060608"><div style="${base}">${logo}<h1 style="font-size:22px;font-weight:700;margin-bottom:16px">Let me tell you something real, ${firstName}…</h1><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">Project DNA isn't just about songs.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">It's about:</p><ul style="color:#94a3b8;line-height:2;padding-left:20px;margin-bottom:20px"><li>Truth in the sound</li><li>Energy that connects people across the world</li><li>Building something that actually means something</li></ul><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">You're not just listening. You're part of what this is becoming.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">And I don't take that lightly.</p>${cta('https://projectdnamusic.info/exclusive','See What\'s Exclusive')}<p style="color:#64748b;margin-top:24px">– Shakim</p>${footer}</div></body></html>`;
+
+    if (step === 4) return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:20px;background:#060608"><div style="${base}">${logo}<h1 style="font-size:22px;font-weight:700;margin-bottom:16px">If you've been rocking with what I'm doing, ${firstName}…</h1><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">Here's a way to support and go deeper.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">Music, merch, and beats — everything you see in the store helps me keep creating and pushing this movement forward.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">No pressure — just putting it out there for the real ones.</p>${cta('https://projectdnamusic.info/shop','Browse the Store')}<p style="color:#64748b;margin-top:24px">– Shakim</p>${footer}</div></body></html>`;
+
+    // step 5
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:20px;background:#060608"><div style="${base}">${logo}<h1 style="font-size:22px;font-weight:700;margin-bottom:16px">${firstName}, you've been tapped in for a minute now…</h1><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">So I'm going to open the door a little more.</p><p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">I'm building a smaller circle of people who get:</p><ul style="color:#94a3b8;line-height:2;padding-left:20px;margin-bottom:20px"><li>Early releases before anyone else</li><li>Exclusive content I don't put out publicly</li><li>Direct connection to what's being built</li></ul><p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">If that's you — this is where things really start to move.</p>${cta('https://projectdnamusic.info/membership','Join the VIP Circle')}<p style="color:#64748b;margin-top:24px">– Shakim</p>${footer}</div></body></html>`;
+  }
+
+  const SEQUENCE_STEPS = [
+    { stepIndex: 0, subject: 'Welcome…', delayDays: 0, preheader: 'You just tapped into something different.' },
+    { stepIndex: 1, subject: 'I want you to hear something a little deeper…', delayDays: 1, preheader: 'Real energy. No filter.' },
+    { stepIndex: 2, subject: 'Let me tell you something real…', delayDays: 3, preheader: "Project DNA isn't just about songs." },
+    { stepIndex: 3, subject: "If you've been rocking with what I'm doing…", delayDays: 5, preheader: "Here's a way to support and go deeper." },
+    { stepIndex: 4, subject: "You've been tapped in for a minute now…", delayDays: 7, preheader: "I'm opening the door a little more." },
+  ];
+
+  let welcomeSequenceId: string | null = null;
+  let welcomeTemplates: { id: string; stepIndex: number; delayDays: number; subject: string }[] = [];
+
+  async function seedWelcomeSequence() {
+    try {
+      const existing = await db.select().from(emailSequences).where(eq(emailSequences.key, WELCOME_SEQ_KEY)).limit(1);
+      if (existing.length > 0) {
+        welcomeSequenceId = existing[0].id;
+        welcomeTemplates = await db.select({
+          id: emailTemplates.id, stepIndex: emailTemplates.stepIndex,
+          delayDays: emailTemplates.delayDays, subject: emailTemplates.subject,
+        }).from(emailTemplates).where(eq(emailTemplates.sequenceId, welcomeSequenceId));
+        console.log(`[Sequence] Loaded welcome sequence (${welcomeTemplates.length} steps)`);
+        return;
+      }
+      const now = new Date().toISOString();
+      const [seq] = await db.insert(emailSequences).values({
+        key: WELCOME_SEQ_KEY, name: '5-Email Welcome Series',
+        triggerType: 'signup', active: 1, createdAt: now,
+      }).returning();
+      welcomeSequenceId = seq.id;
+      for (const step of SEQUENCE_STEPS) {
+        const [tmpl] = await db.insert(emailTemplates).values({
+          sequenceId: seq.id, stepIndex: step.stepIndex,
+          subject: step.subject, preheader: step.preheader,
+          bodyHtml: buildSequenceEmailHtml(step.stepIndex + 1, '{{firstName}}'),
+          delayDays: step.delayDays, enabled: 1, createdAt: now,
+        }).returning();
+        welcomeTemplates.push({ id: tmpl.id, stepIndex: step.stepIndex, delayDays: step.delayDays, subject: step.subject });
+      }
+      console.log(`[Sequence] Welcome sequence seeded with ${SEQUENCE_STEPS.length} steps`);
+    } catch (err) {
+      console.error('[Sequence] Seed error:', err);
+    }
+  }
+  await seedWelcomeSequence();
+
+  async function enrollUserInWelcomeSequence(userId: string) {
+    if (!welcomeSequenceId) return;
+    try {
+      const already = await db.select({ id: emailEvents.id }).from(emailEvents)
+        .where(and(eq(emailEvents.userId, userId), eq(emailEvents.eventType, 'enrolled'), eq(emailEvents.sequenceId, welcomeSequenceId))).limit(1);
+      if (already.length > 0) return;
+      await db.insert(emailEvents).values({
+        userId, sequenceId: welcomeSequenceId, eventType: 'enrolled',
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[Sequence] Enroll error:', err);
+    }
+  }
+
+  async function runWelcomeSequencePump() {
+    if (!welcomeSequenceId || welcomeTemplates.length === 0) return;
+    try {
+      const { getResendClient } = await import('./email');
+      const { client: resend, fromEmail } = await getResendClient();
+
+      // Get all enrolled users with their enrollment time
+      const enrolled = await db.select({
+        userId: emailEvents.userId, occurredAt: emailEvents.occurredAt,
+      }).from(emailEvents)
+        .where(and(eq(emailEvents.sequenceId, welcomeSequenceId), eq(emailEvents.eventType, 'enrolled')));
+
+      for (const enrollment of enrolled) {
+        const enrolledAt = new Date(enrollment.occurredAt);
+        const daysSinceEnroll = (Date.now() - enrolledAt.getTime()) / (1000 * 60 * 60 * 24);
+
+        // Find which templates are due but not yet sent
+        const sentEvents = await db.select({ metadata: emailEvents.metadata }).from(emailEvents)
+          .where(and(
+            eq(emailEvents.userId, enrollment.userId),
+            eq(emailEvents.sequenceId, welcomeSequenceId),
+            eq(emailEvents.eventType, 'sent'),
+          ));
+        const sentSteps = new Set(sentEvents.map(e => {
+          try { return JSON.parse(e.metadata || '{}').stepIndex; } catch { return -1; }
+        }));
+
+        for (const tmpl of welcomeTemplates) {
+          if (sentSteps.has(tmpl.stepIndex)) continue;
+          if (daysSinceEnroll < tmpl.delayDays) continue;
+
+          // Fetch user's email
+          const [user] = await db.select({ email: users.email, username: users.username })
+            .from(users).where(eq(users.id, enrollment.userId)).limit(1);
+          if (!user?.email) continue;
+
+          const firstName = user.username?.split(' ')[0] || user.username || 'friend';
+          const bodyHtml = buildSequenceEmailHtml(tmpl.stepIndex + 1, firstName);
+
+          try {
+            const sent = await resend.emails.send({
+              from: fromEmail || 'Shakim <noreply@projectdnamusic.info>',
+              to: user.email,
+              subject: tmpl.subject,
+              html: bodyHtml,
+              replyTo: 'shakim@projectdnamusic.info',
+            });
+            await db.insert(emailEvents).values({
+              userId: enrollment.userId, sequenceId: welcomeSequenceId,
+              templateId: tmpl.id,
+              emailId: (sent as any)?.data?.id || null,
+              eventType: 'sent',
+              metadata: JSON.stringify({ stepIndex: tmpl.stepIndex, subject: tmpl.subject }),
+              occurredAt: new Date().toISOString(),
+            });
+            console.log(`[Sequence] Step ${tmpl.stepIndex + 1} sent to ${user.email}`);
+          } catch (err: any) {
+            console.error(`[Sequence] Failed to send step ${tmpl.stepIndex + 1} to ${user.email}:`, err?.message);
+          }
+          await new Promise(r => setTimeout(r, 250)); // rate limit pause
+        }
+      }
+    } catch (err) {
+      console.error('[Sequence] Pump error:', err);
+    }
+  }
+
+  // Run pump every 15 minutes
+  setInterval(runWelcomeSequencePump, 15 * 60 * 1000);
+  // First run after 2 minutes to let server settle
+  setTimeout(runWelcomeSequencePump, 2 * 60 * 1000);
+
+  // Admin: sequence stats
+  app.get('/api/admin/sequence/stats', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (!welcomeSequenceId) return res.json({ enrolled: 0, steps: [] });
+
+    const enrolled = await db.select({ id: emailEvents.id }).from(emailEvents)
+      .where(and(eq(emailEvents.sequenceId, welcomeSequenceId), eq(emailEvents.eventType, 'enrolled')));
+
+    const stepCounts: Record<number, number> = {};
+    const sentEvts = await db.select({ metadata: emailEvents.metadata }).from(emailEvents)
+      .where(and(eq(emailEvents.sequenceId, welcomeSequenceId), eq(emailEvents.eventType, 'sent')));
+    for (const evt of sentEvts) {
+      try {
+        const meta = JSON.parse(evt.metadata || '{}');
+        const s = meta.stepIndex ?? -1;
+        if (s >= 0) stepCounts[s] = (stepCounts[s] || 0) + 1;
+      } catch { /* skip */ }
+    }
+
+    const steps = SEQUENCE_STEPS.map(s => ({
+      stepIndex: s.stepIndex,
+      subject: s.subject,
+      delayDays: s.delayDays,
+      sent: stepCounts[s.stepIndex] || 0,
+    }));
+
+    res.json({ enrolled: enrolled.length, steps });
+  });
+
+  // Admin: enroll all existing users in the sequence (backfill)
+  app.post('/api/admin/sequence/enroll-all', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const admin = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!admin[0] || admin[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+
+    const allUsers = await db.select({ id: users.id }).from(users);
+    let enrolled = 0;
+    for (const u of allUsers) {
+      await enrollUserInWelcomeSequence(u.id);
+      enrolled++;
+    }
+    res.json({ message: `Enrolled ${enrolled} users in welcome sequence` });
+  });
+
+  // Follow-up campaign email (re-engagement for N1M fans who didn't click)
+  function buildFollowUpHtml(firstName: string): string {
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:20px;background:#060608;font-family:sans-serif">
+<div style="max-width:600px;margin:0 auto;background:#0a0a0f;color:#ffffff;padding:40px 32px;border-radius:12px">
+  <div style="text-align:center;margin-bottom:28px">
+    <img src="https://projectdnamusic.info/media/images/logo.png" alt="Project DNA" style="height:52px;width:auto" />
+  </div>
+  <h1 style="font-size:22px;font-weight:700;margin-bottom:16px">Hey ${firstName},</h1>
+  <p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">I wanted to reach back out real quick…</p>
+  <p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">I sent you something the other day about the new Project DNA home, but I know how life gets — things get missed.</p>
+  <p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">So I made it simple.</p>
+  <div style="text-align:center;margin:28px 0">
+    <a href="https://projectdnamusic.info" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:16px">→ projectdnamusic.info</a>
+  </div>
+  <p style="color:#94a3b8;line-height:1.8;margin-bottom:8px">That's where I'm putting:</p>
+  <ul style="color:#94a3b8;line-height:2;padding-left:20px;margin-bottom:20px">
+    <li>Exclusive music</li>
+    <li>Early drops</li>
+    <li>The real behind-the-scenes of what I'm building</li>
+  </ul>
+  <p style="color:#94a3b8;line-height:1.8;margin-bottom:14px">And honestly… some of the best music I'm working on isn't even going to touch N1M.</p>
+  <p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">I wanted you to have access to that first.</p>
+  <p style="color:#94a3b8;line-height:1.8;margin-bottom:24px">Take a minute and tap in when you can. I'd really like to know what you think.</p>
+  <p style="color:#64748b;margin-bottom:4px">Respect always,</p>
+  <p style="color:#e2e8f0;font-weight:700;margin-bottom:0">Shawn "Shakim" Williams</p>
+  <p style="color:#94a3b8;line-height:1.8;margin-top:20px;font-size:14px;font-style:italic">P.S. When you land on the site… don't just listen — join the list so I can send you the next drop directly.</p>
+  <hr style="border:none;border-top:1px solid #1e293b;margin:32px 0"/>
+  <p style="color:#475569;font-size:12px;text-align:center">You're receiving this because you connected with Shakim on N1M.<br/>Project DNA Music LLC · projectdnamusic.info</p>
+</div>
+</body>
+</html>`;
+  }
+
+  let followUpState = {
+    status: 'idle' as 'idle' | 'running' | 'done' | 'error',
+    total: 0, sent: 0, failed: 0,
+    startedAt: null as string | null, finishedAt: null as string | null, lastError: null as string | null,
+  };
+
+  app.get('/api/admin/campaign/followup-status', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const contacts = await getAllFanContacts();
+    res.json({ ...followUpState, contactCount: contacts.length });
+  });
+
+  app.post('/api/admin/campaign/send-followup', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (followUpState.status === 'running') return res.status(409).json({ error: 'Follow-up already running' });
+
+    const contacts = await getAllFanContacts();
+    if (contacts.length === 0) return res.status(400).json({ error: 'No contacts found' });
+
+    let resendClient: import('resend').Resend;
+    let fromEmail = 'Shakim <noreply@projectdnamusic.info>';
+    try {
+      const { getResendClient } = await import('./email');
+      const { client, fromEmail: fe } = await getResendClient();
+      resendClient = client;
+      if (fe) fromEmail = fe;
+    } catch {
+      return res.status(500).json({ error: 'Resend not configured' });
+    }
+
+    followUpState = { status: 'running', total: contacts.length, sent: 0, failed: 0, startedAt: new Date().toISOString(), finishedAt: null, lastError: null };
+    res.json({ message: 'Follow-up campaign started', total: contacts.length });
+
+    (async () => {
+      const BATCH = 50;
+      for (let i = 0; i < contacts.length; i += BATCH) {
+        if (followUpState.status !== 'running') break;
+        const batch = contacts.slice(i, i + BATCH);
+        for (const contact of batch) {
+          if (followUpState.status !== 'running') break;
+          const firstName = contact.name.split(' ')[0] || contact.name;
+          try {
+            await resendClient.emails.send({
+              from: fromEmail, to: contact.email,
+              subject: "Hey, I wanted to reach back out real quick…",
+              html: buildFollowUpHtml(firstName),
+              replyTo: 'shakim@projectdnamusic.info',
+            });
+            followUpState.sent++;
+          } catch (err: any) {
+            followUpState.failed++;
+            followUpState.lastError = err?.message || 'Unknown error';
+          }
+          await new Promise(r => setTimeout(r, 120));
+        }
+        if (i + BATCH < contacts.length) await new Promise(r => setTimeout(r, 2000));
+      }
+      followUpState.status = 'done';
+      followUpState.finishedAt = new Date().toISOString();
+    })().catch(err => {
+      followUpState.status = 'error';
+      followUpState.lastError = err?.message;
+      followUpState.finishedAt = new Date().toISOString();
+    });
+  });
+
+  app.post('/api/admin/campaign/cancel-followup', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (followUpState.status === 'running') {
+      followUpState.status = 'done';
+      followUpState.finishedAt = new Date().toISOString();
+    }
+    res.json({ message: 'Stopped' });
   });
 
   registerAIAgentRoutes(app);

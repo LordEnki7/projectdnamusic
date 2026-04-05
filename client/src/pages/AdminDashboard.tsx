@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users, Mic2, Send } from "lucide-react";
+import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users, Mic2, Send, Link2, Crown } from "lucide-react";
 import AdminAgentHub from "@/components/AdminAgentHub";
 import FanPipeline from "@/components/FanPipeline";
 import { Link, useLocation } from "wouter";
@@ -119,10 +119,14 @@ function CampaignTab() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [campaign, setCampaign] = useState<CampaignStatus | null>(null);
+  const [followUp, setFollowUp] = useState<any | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [activeSection, setActiveSection] = useState<'send' | 'contacts' | 'upload'>('send');
+  const [showFollowUpPreview, setShowFollowUpPreview] = useState(false);
+  const [activeSection, setActiveSection] = useState<'send' | 'followup' | 'sequence' | 'funnel' | 'contacts' | 'upload'>('send');
   const pollRef = useRef<number | null>(null);
+  const followPollRef = useRef<number | null>(null);
 
   // Contact list state — using TanStack Query for caching across remounts
   const [contactsPage, setContactsPage] = useState(1);
@@ -158,6 +162,16 @@ function CampaignTab() {
   const contactsTotal = contactsData?.total ?? 0;
   const contactsPages = contactsData?.pages ?? 1;
 
+  const { data: seqStats, refetch: refetchSeq } = useQuery<{ enrolled: number; steps: { stepIndex: number; subject: string; delayDays: number; sent: number }[] }>({
+    queryKey: ['/api/admin/sequence/stats'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/sequence/stats', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 2,
+  });
+
   const fetchStatus = async () => {
     try {
       const res = await fetch('/api/admin/campaign/status', { credentials: 'include' });
@@ -165,7 +179,14 @@ function CampaignTab() {
     } catch { /* ignore */ }
   };
 
-  useEffect(() => { fetchStatus(); }, []);
+  const fetchFollowUpStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/campaign/followup-status', { credentials: 'include' });
+      if (res.ok) setFollowUp(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { fetchStatus(); fetchFollowUpStatus(); }, []);
 
   useEffect(() => {
     if (campaign?.status === 'running') {
@@ -175,6 +196,15 @@ function CampaignTab() {
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [campaign?.status]);
+
+  useEffect(() => {
+    if (followUp?.status === 'running') {
+      followPollRef.current = window.setInterval(fetchFollowUpStatus, 2000);
+    } else {
+      if (followPollRef.current) clearInterval(followPollRef.current);
+    }
+    return () => { if (followPollRef.current) clearInterval(followPollRef.current); };
+  }, [followUp?.status]);
 
   // Debounce search input so we don't fire on every keystroke
   useEffect(() => {
@@ -203,6 +233,36 @@ function CampaignTab() {
   const handleCancel = async () => {
     await apiRequest('POST', '/api/admin/campaign/cancel', {});
     fetchStatus();
+  };
+
+  const handleSendFollowUp = async () => {
+    if (!confirm(`Send the re-engagement email to all ${followUp?.contactCount ?? 1029} fans? Continue?`)) return;
+    setIsSendingFollowUp(true);
+    try {
+      const res = await apiRequest('POST', '/api/admin/campaign/send-followup', {});
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Failed'); }
+      toast({ title: "Follow-up started!", description: "Re-engagement emails going out now." });
+      setTimeout(fetchFollowUpStatus, 1000);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setIsSendingFollowUp(false); }
+  };
+
+  const handleCancelFollowUp = async () => {
+    await apiRequest('POST', '/api/admin/campaign/cancel-followup', {});
+    fetchFollowUpStatus();
+  };
+
+  const handleEnrollAll = async () => {
+    if (!confirm('Enroll all existing users in the welcome email sequence?')) return;
+    try {
+      const res = await apiRequest('POST', '/api/admin/sequence/enroll-all', {});
+      const data = await res.json();
+      toast({ title: "Enrolled!", description: data.message });
+      refetchSeq();
+    } catch {
+      toast({ title: "Error", description: "Failed to enroll users", variant: "destructive" });
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -260,14 +320,21 @@ function CampaignTab() {
       </div>
 
       {/* Section nav */}
-      <div className="flex gap-2 border-b border-slate-800 pb-1">
-        {(['send', 'contacts', 'upload'] as const).map(s => (
-          <button key={s} onClick={() => setActiveSection(s)}
-            data-testid={`button-campaign-section-${s}`}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors capitalize ${
-              activeSection === s ? 'text-white border-b-2 border-purple-500' : 'text-slate-400 hover:text-slate-200'
+      <div className="flex gap-1 border-b border-slate-800 pb-1 flex-wrap">
+        {([
+          { key: 'send', label: 'Campaign #1' },
+          { key: 'followup', label: 'Follow-Up' },
+          { key: 'sequence', label: `Welcome Series (${seqStats?.enrolled ?? 0})` },
+          { key: 'funnel', label: 'Funnel Map' },
+          { key: 'contacts', label: `Fan List (${campaign?.contactCount ?? 1029})` },
+          { key: 'upload', label: 'Upload CSV' },
+        ] as const).map(s => (
+          <button key={s.key} onClick={() => setActiveSection(s.key)}
+            data-testid={`button-campaign-section-${s.key}`}
+            className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              activeSection === s.key ? 'text-white border-b-2 border-purple-500' : 'text-slate-400 hover:text-slate-200'
             }`}>
-            {s === 'send' ? 'Send Campaign' : s === 'contacts' ? `Fan List (${campaign?.contactCount ?? 1029})` : 'Upload CSV'}
+            {s.label}
           </button>
         ))}
       </div>
@@ -370,6 +437,173 @@ function CampaignTab() {
           <p className="text-slate-600 text-xs">
             Emails send in background — batches of 50, short delays between each. You can navigate away safely.
           </p>
+        </div>
+      )}
+
+      {/* ── FOLLOW-UP SECTION ── */}
+      {activeSection === 'followup' && (() => {
+        const fuProgress = followUp && followUp.total > 0
+          ? Math.round(((followUp.sent + followUp.failed) / followUp.total) * 100) : 0;
+        return (
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-white font-semibold mb-1">Re-Engagement Email</h3>
+              <p className="text-slate-400 text-sm">For fans who didn't click your first campaign. A softer re-touch that makes it simple to tap in.</p>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[
+                { label: 'Total Contacts', value: followUp?.contactCount ?? 1029, color: 'text-white' },
+                { label: 'Sent', value: followUp?.sent ?? 0, color: 'text-green-400' },
+                { label: 'Failed', value: followUp?.failed ?? 0, color: 'text-red-400' },
+                { label: 'Progress', value: `${fuProgress}%`, color: 'text-purple-400' },
+              ].map(stat => (
+                <Card key={stat.label}><CardContent className="pt-4 pb-4 text-center">
+                  <p className={`text-3xl font-bold ${stat.color}`}>{stat.value}</p>
+                  <p className="text-slate-400 text-xs mt-1">{stat.label}</p>
+                </CardContent></Card>
+              ))}
+            </div>
+
+            {followUp?.status === 'running' && (
+              <Card><CardContent className="pt-4">
+                <div className="flex justify-between text-xs text-slate-400 mb-2">
+                  <span>Sending follow-up…</span>
+                  <span>{followUp.sent + followUp.failed} / {followUp.total}</span>
+                </div>
+                <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full transition-all duration-500" style={{ width: `${fuProgress}%` }} />
+                </div>
+              </CardContent></Card>
+            )}
+            {followUp?.status === 'done' && (
+              <div className="p-4 rounded-xl bg-green-950/30 border border-green-500/30">
+                <p className="text-green-400 font-semibold">Follow-up complete</p>
+                <p className="text-slate-400 text-sm mt-1">{followUp.sent} delivered · {followUp.failed} failed{followUp.finishedAt && ` · ${new Date(followUp.finishedAt).toLocaleString()}`}</p>
+              </div>
+            )}
+
+            <Card><CardContent className="pt-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-semibold text-sm">Email Preview</h3>
+                <Button variant="ghost" size="sm" onClick={() => setShowFollowUpPreview(!showFollowUpPreview)}>
+                  {showFollowUpPreview ? 'Hide' : 'Show'}
+                </Button>
+              </div>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex gap-3"><span className="text-slate-500 w-16 flex-shrink-0">Subject</span><span className="text-slate-300">Hey, I wanted to reach back out real quick…</span></div>
+                <div className="flex gap-3"><span className="text-slate-500 w-16 flex-shrink-0">To</span><span className="text-slate-300">{followUp?.contactCount ?? 1029} fans from N1M list</span></div>
+              </div>
+              {showFollowUpPreview && (
+                <div className="mt-4 p-4 rounded-xl bg-slate-900/60 border border-slate-700/50 text-sm text-slate-300 space-y-2 leading-relaxed">
+                  <p className="text-white font-semibold">Hey [First Name],</p>
+                  <p>I wanted to reach back out real quick… I sent you something the other day about the new Project DNA home, but I know how life gets — things get missed.</p>
+                  <p className="text-cyan-400 font-bold">→ projectdnamusic.info</p>
+                  <p>Exclusive music · Early drops · Behind-the-scenes</p>
+                  <p className="italic text-slate-500 text-xs">P.S. When you land on the site… don't just listen — join the list.</p>
+                </div>
+              )}
+            </CardContent></Card>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              {followUp?.status !== 'running' ? (
+                <Button onClick={handleSendFollowUp} disabled={isSendingFollowUp}
+                  className="bg-gradient-to-r from-cyan-600 to-purple-600 text-white border-0 px-8"
+                  data-testid="button-followup-send">
+                  {isSendingFollowUp ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Starting…</> : <><Send className="w-4 h-4 mr-2" />Send Follow-Up to All {followUp?.contactCount ?? 1029} Fans</>}
+                </Button>
+              ) : (
+                <Button onClick={handleCancelFollowUp} variant="outline" className="border-red-500/50 text-red-400">Stop</Button>
+              )}
+              <Button variant="ghost" onClick={fetchFollowUpStatus} size="sm"><RefreshCw className="w-4 h-4 mr-1" /> Refresh</Button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── WELCOME SEQUENCE SECTION ── */}
+      {activeSection === 'sequence' && (
+        <div className="space-y-5">
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <h3 className="text-white font-semibold mb-1">5-Email Welcome Series</h3>
+              <p className="text-slate-400 text-sm">Automatically sent to every new signup. Builds relationship over 7 days — trust, story, offer, VIP.</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleEnrollAll} data-testid="button-sequence-enroll-all">
+              Enroll Existing Users
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Card><CardContent className="pt-4 pb-4 text-center">
+              <p className="text-3xl font-bold text-purple-400">{seqStats?.enrolled ?? 0}</p>
+              <p className="text-slate-400 text-xs mt-1">Users Enrolled</p>
+            </CardContent></Card>
+            <Card><CardContent className="pt-4 pb-4 text-center">
+              <p className="text-3xl font-bold text-cyan-400">{seqStats?.steps?.reduce((a, s) => a + s.sent, 0) ?? 0}</p>
+              <p className="text-slate-400 text-xs mt-1">Total Emails Sent</p>
+            </CardContent></Card>
+          </div>
+
+          <Card><CardContent className="pt-5 space-y-3">
+            <h4 className="text-white font-semibold text-sm mb-3">Email Steps</h4>
+            {(seqStats?.steps ?? [
+              { stepIndex: 0, subject: 'Welcome…', delayDays: 0, sent: 0 },
+              { stepIndex: 1, subject: 'I want you to hear something a little deeper…', delayDays: 1, sent: 0 },
+              { stepIndex: 2, subject: 'Let me tell you something real…', delayDays: 3, sent: 0 },
+              { stepIndex: 3, subject: "If you've been rocking with what I'm doing…", delayDays: 5, sent: 0 },
+              { stepIndex: 4, subject: "You've been tapped in for a minute now…", delayDays: 7, sent: 0 },
+            ]).map((step, i) => (
+              <div key={i} className="flex items-center gap-4 p-3 rounded-lg bg-slate-900/60 border border-slate-800">
+                <div className="w-8 h-8 rounded-full bg-purple-900/50 border border-purple-500/30 flex items-center justify-center text-purple-400 text-xs font-bold flex-shrink-0">{i + 1}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{step.subject}</p>
+                  <p className="text-slate-500 text-xs mt-0.5">{step.delayDays === 0 ? 'Sent immediately' : `Day ${step.delayDays}`}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-green-400 text-sm font-semibold">{step.sent}</p>
+                  <p className="text-slate-600 text-xs">sent</p>
+                </div>
+              </div>
+            ))}
+          </CardContent></Card>
+          <p className="text-slate-600 text-xs">The scheduler checks every 15 minutes. New signups are enrolled automatically. Use "Enroll Existing Users" to backfill accounts that signed up before this feature was added.</p>
+        </div>
+      )}
+
+      {/* ── FUNNEL MAP SECTION ── */}
+      {activeSection === 'funnel' && (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-white font-semibold mb-1">Fan Conversion Funnel</h3>
+            <p className="text-slate-400 text-sm">Your complete N1M → loyal supporter pipeline — 7 stages, simple and effective.</p>
+          </div>
+          {[
+            { stage: 1, label: 'N1M — Attention', Icon: Radio, iconColor: 'text-slate-400', color: 'border-slate-600', desc: 'Message fans · Build curiosity · No links yet', action: null },
+            { stage: 2, label: 'Engagement', Icon: MessageSquare, iconColor: 'text-blue-400', color: 'border-blue-500/40', desc: 'Ask questions · Talk about music · Make it personal', action: null },
+            { stage: 3, label: 'Conversion — Move Them', Icon: Link2, iconColor: 'text-purple-400', color: 'border-purple-500/40', desc: 'Send them to projectdnamusic.info — exclusive, deeper, not on N1M', action: 'Campaign #1 + Follow-Up' },
+            { stage: 4, label: 'Capture — Get Email', Icon: Mail, iconColor: 'text-cyan-400', color: 'border-cyan-500/40', desc: 'Fan signs up → enters the welcome sequence automatically', action: 'Welcome Series' },
+            { stage: 5, label: 'Nurture — Build Trust', Icon: Music, iconColor: 'text-green-400', color: 'border-green-500/40', desc: 'Music · Story · Connection over 7 days (5 emails)', action: 'Welcome Series' },
+            { stage: 6, label: 'Monetize — First Sale', Icon: DollarSign, iconColor: 'text-yellow-400', color: 'border-yellow-500/40', desc: 'Email 4: soft offer — music, merch, bundle', action: 'Email 4 (day 5)' },
+            { stage: 7, label: 'Loyalty — The Gold', Icon: Crown, iconColor: 'text-orange-400', color: 'border-orange-500/40', desc: 'VIP circle · Early access · Repeat buyers · Promoters', action: 'Email 5 (day 7)' },
+          ].map((s, i) => (
+            <div key={i} className={`flex items-start gap-4 p-4 rounded-xl border ${s.color} bg-slate-900/40`}>
+              <div className={`mt-0.5 flex-shrink-0 ${s.iconColor}`}><s.Icon className="w-5 h-5" /></div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-slate-500 font-mono">STAGE {s.stage}</span>
+                  <span className="text-white font-semibold text-sm">{s.label}</span>
+                  {s.action && <Badge variant="outline" className="text-purple-400 border-purple-500/30 text-xs">{s.action}</Badge>}
+                </div>
+                <p className="text-slate-400 text-sm mt-1">{s.desc}</p>
+              </div>
+            </div>
+          ))}
+          <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30">
+            <p className="text-purple-300 font-semibold text-sm">The simple flow</p>
+            <p className="text-slate-400 text-sm mt-1">N1M → Conversation → Website → Email Capture → Welcome Series → Offer → VIP → Repeat</p>
+            <p className="text-slate-500 text-xs mt-2">1,029 fans can become 100 real supporters + consistent income + momentum</p>
+          </div>
         </div>
       )}
 
