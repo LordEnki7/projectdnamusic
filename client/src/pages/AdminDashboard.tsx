@@ -117,6 +117,7 @@ interface ContactsResponse { contacts: FanContact[]; total: number; page: number
 
 function CampaignTab() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [campaign, setCampaign] = useState<CampaignStatus | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
