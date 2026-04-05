@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import fs from "fs";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
@@ -3765,13 +3766,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   function parseFanCsv(): { name: string; email: string; location: string }[] {
-    const fsSync = require('fs');
     // Prefer uploaded CSV over the original attached_assets one
     const uploadedPath = 'uploads/fan_contacts.csv';
     const fallbackPath = 'attached_assets/google_1775412967207.csv';
-    const csvPath = fsSync.existsSync(uploadedPath) ? uploadedPath : fallbackPath;
-    if (!fsSync.existsSync(csvPath)) return [];
-    const content = fsSync.readFileSync(csvPath, 'utf8');
+    const csvPath = fs.existsSync(uploadedPath) ? uploadedPath : fallbackPath;
+    if (!fs.existsSync(csvPath)) return [];
+    const content = fs.readFileSync(csvPath, 'utf8');
     return parseCsvContent(content);
   }
 
@@ -3808,9 +3808,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { csvContent } = req.body;
     if (!csvContent || typeof csvContent !== 'string') return res.status(400).json({ error: "No CSV content provided" });
 
-    const fsSync = require('fs');
-    fsSync.mkdirSync('uploads', { recursive: true });
-    fsSync.writeFileSync('uploads/fan_contacts.csv', csvContent, 'utf8');
+    fs.mkdirSync('uploads', { recursive: true });
+    fs.writeFileSync('uploads/fan_contacts.csv', csvContent, 'utf8');
 
     const contacts = parseCsvContent(csvContent);
     if (contacts.length === 0) return res.status(400).json({ error: "No valid contacts found in CSV" });
