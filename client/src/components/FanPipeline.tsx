@@ -570,11 +570,32 @@ function ScoutPanel() {
 // ─── Main Fan Pipeline Component ───────────────────────────────────────────────
 
 export default function FanPipeline() {
-  const { data: fans = [], isLoading } = useQuery<Fan[]>({ queryKey: ["/api/fans"] });
+  const { toast } = useToast();
+  const { data: fans = [], isLoading, refetch } = useQuery<Fan[]>({ queryKey: ["/api/fans"] });
   const [stageFilter, setStageFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [draftFanId, setDraftFanId] = useState<string | null>(null);
   const [interactionFan, setInteractionFan] = useState<Fan | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handleImportContacts = async () => {
+    if (!confirm("Import all 1,029 N1M fans into the pipeline as Cold Followers? Existing emails will be skipped.")) return;
+    setIsImporting(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/fans/import-contacts", {});
+      const data = await res.json();
+      toast({ title: "Import complete", description: `${data.imported} fans added · ${data.skipped} skipped (already existed)` });
+      refetch();
+    } catch {
+      toast({ title: "Import failed", variant: "destructive" });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleExportPipeline = () => {
+    window.location.href = "/api/admin/fans/export.csv";
+  };
 
   const filtered = fans.filter(f => {
     const matchesStage = stageFilter === "all" || f.stage === stageFilter;
@@ -642,7 +663,29 @@ export default function FanPipeline() {
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" /> Reports
             </TabsTrigger>
           </TabsList>
-          <AddFanDialog />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-cyan-500/40 text-cyan-400 hover:text-cyan-300"
+              onClick={handleImportContacts}
+              disabled={isImporting}
+              data-testid="button-import-contacts"
+            >
+              {isImporting ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5 mr-1.5" />}
+              {isImporting ? "Importing…" : "Import N1M Fans"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-green-500/40 text-green-400 hover:text-green-300"
+              onClick={handleExportPipeline}
+              data-testid="button-export-pipeline"
+            >
+              <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Export CSV
+            </Button>
+            <AddFanDialog />
+          </div>
         </div>
 
         {/* Fan List Tab */}

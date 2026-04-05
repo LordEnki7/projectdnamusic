@@ -619,6 +619,14 @@ function CampaignTab() {
               className="flex-1 min-w-48 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
             />
             <span className="text-slate-400 text-sm">{contactsTotal} contacts</span>
+            <a
+              href="/api/admin/campaign/export.csv"
+              download="n1m_fan_contacts.csv"
+              data-testid="link-export-contacts"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-green-500/40 text-green-400 hover:text-green-300 hover:border-green-400/60 transition-colors"
+            >
+              ↓ Export All CSV
+            </a>
           </div>
 
           <Card>

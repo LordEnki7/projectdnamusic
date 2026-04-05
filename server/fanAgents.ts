@@ -7,7 +7,8 @@ import type { Express } from "express";
 import { db } from "./db";
 import {
   fans, fanInteractions, fanScores, fanStageHistory,
-  campaignLinks, fanLinkClicks, fanConversions, n1mAgentTasks, fanDailyReports
+  campaignLinks, fanLinkClicks, fanConversions, n1mAgentTasks, fanDailyReports,
+  fanContacts
 } from "@shared/schema";
 import { eq, desc, sql, and, lt } from "drizzle-orm";
 import OpenAI from "openai";
@@ -726,5 +727,133 @@ export function registerFanAgentRoutes(app: Express) {
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // ─── Bulk import N1M contacts into the Fan Pipeline ─────────────────────────
+  app.post("/api/admin/fans/import-contacts", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const contacts = await db.select().from(fanContacts);
+    if (contacts.length === 0) return res.json({ imported: 0, skipped: 0 });
+
+    let imported = 0;
+    let skipped = 0;
+    const BATCH = 50;
+
+    for (let i = 0; i < contacts.length; i += BATCH) {
+      const batch = contacts.slice(i, i + BATCH);
+      for (const contact of batch) {
+        // Skip if a fan with this email already exists
+        if (contact.email) {
+          const existing = await db.select({ id: fans.id }).from(fans)
+            .where(eq(fans.email, contact.email)).limit(1);
+          if (existing.length > 0) { skipped++; continue; }
+        }
+
+        // Location format is "Country CityName" (space-separated, country first)
+        // Known multi-word countries we can strip to extract the city
+        const MULTI_WORD_COUNTRIES = [
+          'United States', 'United Kingdom', 'New Zealand', 'South Africa',
+          'Puerto Rico', 'Costa Rica', 'El Salvador', 'Dominican Republic',
+          'Trinidad And Tobago', 'Trinidad & Tobago',
+        ];
+        let locationRaw = (contact.location || '').trim();
+        let country: string | null = null;
+        let city: string | null = null;
+        let stateRegion: string | null = null;
+
+        if (locationRaw) {
+          const multiMatch = MULTI_WORD_COUNTRIES.find(c => locationRaw.startsWith(c));
+          if (multiMatch) {
+            country = multiMatch;
+            city = locationRaw.slice(multiMatch.length).trim() || null;
+          } else {
+            const spaceIdx = locationRaw.indexOf(' ');
+            if (spaceIdx > 0) {
+              country = locationRaw.slice(0, spaceIdx).trim();
+              city = locationRaw.slice(spaceIdx + 1).trim() || null;
+            } else {
+              country = locationRaw;
+            }
+          }
+        }
+
+        const firstName = (contact.name || '').split(' ')[0];
+        const lastName = (contact.name || '').split(' ').slice(1).join(' ');
+
+        const [fan] = await db.insert(fans).values({
+          sourcePlatform: 'N1M',
+          displayName: contact.name || '',
+          realName: contact.name || '',
+          username: firstName ? `${firstName}${lastName ? '_' + lastName.replace(/\s+/g, '') : ''}`.toLowerCase() : undefined,
+          email: contact.email || undefined,
+          city, stateRegion, country,
+          stage: 'cold_follower',
+          leadScore: 5,
+          emailCaptured: contact.email ? 1 : 0,
+          notes: `Imported from N1M fan list. Location: ${contact.location || 'unknown'}`,
+          createdAt: now(), updatedAt: now(),
+        }).returning();
+
+        await db.insert(fanStageHistory).values({
+          fanId: fan.id, newStage: 'cold_follower',
+          reason: 'imported from N1M contact list', changedAt: now(),
+        });
+
+        imported++;
+      }
+    }
+
+    res.json({ imported, skipped, total: contacts.length });
+  });
+
+  // ─── Export pipeline fans as CSV ────────────────────────────────────────────
+  app.get("/api/admin/fans/export.csv", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const allFans = await db.select().from(fans).orderBy(desc(fans.leadScore));
+
+    const headers = ['Name', 'Email', 'Username', 'City', 'State/Region', 'Country', 'Stage', 'Lead Score', 'Email Captured', 'VIP', 'Notes', 'Tags', 'Created At'];
+    const rows = allFans.map(f => [
+      f.displayName || f.realName || '',
+      f.email || '',
+      f.username || '',
+      f.city || '',
+      f.stateRegion || '',
+      f.country || '',
+      f.stage,
+      f.leadScore,
+      f.emailCaptured ? 'Yes' : 'No',
+      f.vipStatus ? 'Yes' : 'No',
+      (f.notes || '').replace(/"/g, '""'),
+      (f.tags || '').replace(/"/g, '""'),
+      f.createdAt,
+    ].map(v => `"${v}"`).join(','));
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="pipeline_fans.csv"');
+    res.send(csv);
+  });
+
+  // ─── Export N1M contact list as CSV ─────────────────────────────────────────
+  app.get("/api/admin/campaign/export.csv", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const contacts = await db.select().from(fanContacts).orderBy(fanContacts.id);
+
+    const headers = ['Name', 'Email', 'Location', 'Source', 'Added At'];
+    const rows = contacts.map(c => [
+      (c.name || '').replace(/"/g, '""'),
+      (c.email || '').replace(/"/g, '""'),
+      (c.location || '').replace(/"/g, '""'),
+      c.source || 'n1m',
+      c.createdAt || '',
+    ].map(v => `"${v}"`).join(','));
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="n1m_fan_contacts.csv"');
+    res.send(csv);
   });
 }
