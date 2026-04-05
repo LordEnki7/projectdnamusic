@@ -124,18 +124,39 @@ function CampaignTab() {
   const [activeSection, setActiveSection] = useState<'send' | 'contacts' | 'upload'>('send');
   const pollRef = useRef<number | null>(null);
 
-  // Contact list state
-  const [contacts, setContacts] = useState<FanContact[]>([]);
-  const [contactsTotal, setContactsTotal] = useState(0);
+  // Contact list state — using TanStack Query for caching across remounts
   const [contactsPage, setContactsPage] = useState(1);
-  const [contactsPages, setContactsPages] = useState(1);
   const [search, setSearch] = useState('');
-  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   // CSV upload state
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Cached contacts via TanStack Query — survives tab switching
+  const { data: contactsData, isLoading: loadingContacts, refetch: refetchContacts } = useQuery<ContactsResponse>({
+    queryKey: ['/api/admin/campaign/contacts', contactsPage, debouncedSearch],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/campaign/contacts?page=${contactsPage}&limit=50&search=${encodeURIComponent(debouncedSearch)}`,
+        { credentials: 'include' }
+      );
+      if (res.status === 401) {
+        toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
+        setLocation('/login');
+        throw new Error('Unauthorized');
+      }
+      if (!res.ok) throw new Error('Failed to load contacts');
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes cache
+    retry: false,
+  });
+
+  const contacts = contactsData?.contacts ?? [];
+  const contactsTotal = contactsData?.total ?? 0;
+  const contactsPages = contactsData?.pages ?? 1;
 
   const fetchStatus = async () => {
     try {
@@ -144,32 +165,7 @@ function CampaignTab() {
     } catch { /* ignore */ }
   };
 
-  const fetchContacts = async (page = 1, q = search) => {
-    setLoadingContacts(true);
-    try {
-      const res = await fetch(`/api/admin/campaign/contacts?page=${page}&limit=50&search=${encodeURIComponent(q)}`, { credentials: 'include' });
-      if (res.status === 401) {
-        toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
-        setLocation('/login');
-        return;
-      }
-      if (res.ok) {
-        const data: ContactsResponse = await res.json();
-        setContacts(data.contacts);
-        setContactsTotal(data.total);
-        setContactsPage(data.page);
-        setContactsPages(data.pages);
-      }
-    } finally {
-      setLoadingContacts(false);
-    }
-  };
-
   useEffect(() => { fetchStatus(); }, []);
-
-  useEffect(() => {
-    if (activeSection === 'contacts') fetchContacts(1, '');
-  }, [activeSection]);
 
   useEffect(() => {
     if (campaign?.status === 'running') {
@@ -180,9 +176,15 @@ function CampaignTab() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [campaign?.status]);
 
+  // Debounce search input so we don't fire on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const handleSearchChange = (val: string) => {
     setSearch(val);
-    fetchContacts(1, val);
+    setContactsPage(1);
   };
 
   const handleSend = async () => {
@@ -219,6 +221,7 @@ function CampaignTab() {
       const data = await res.json();
       setUploadStatus(`Uploaded successfully — ${data.count} contacts loaded.`);
       toast({ title: "CSV uploaded", description: `${data.count} contacts ready to send.` });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/campaign/contacts'] });
       fetchStatus();
     } catch (e: any) {
       toast({ title: "Upload failed", description: e.message, variant: "destructive" });
@@ -419,10 +422,10 @@ function CampaignTab() {
           {/* Pagination */}
           {contactsPages > 1 && (
             <div className="flex items-center justify-between">
-              <Button variant="ghost" size="sm" onClick={() => { setContactsPage(p => p - 1); fetchContacts(contactsPage - 1); }}
+              <Button variant="ghost" size="sm" onClick={() => setContactsPage(p => p - 1)}
                 disabled={contactsPage <= 1} data-testid="button-contacts-prev">← Prev</Button>
               <span className="text-slate-400 text-sm">Page {contactsPage} of {contactsPages}</span>
-              <Button variant="ghost" size="sm" onClick={() => { setContactsPage(p => p + 1); fetchContacts(contactsPage + 1); }}
+              <Button variant="ghost" size="sm" onClick={() => setContactsPage(p => p + 1)}
                 disabled={contactsPage >= contactsPages} data-testid="button-contacts-next">Next →</Button>
             </div>
           )}
