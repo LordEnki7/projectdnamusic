@@ -71,8 +71,10 @@ function DNARadioPlayer() {
   const [localPosition, setLocalPosition] = useState(0);
   const [isBumper, setIsBumper] = useState(false);
   const positionRef = useRef(0);
-  const syncIntervalRef = useRef<number | null>(null);
   const tickIntervalRef = useRef<number | null>(null);
+  const slotTimerRef = useRef<number | null>(null);
+  const connectedRef = useRef(false);
+  const currentUrlRef = useRef('');
 
   const { data, refetch } = useQuery<NowPlayingData>({
     queryKey: ['/api/radio/now-playing'],
@@ -86,31 +88,59 @@ function DNARadioPlayer() {
   const coverArt = song?.coverArt;
 
   const syncToStation = useCallback(async () => {
+    if (!connectedRef.current) return;
     const result = await refetch();
     const np = result.data;
-    if (!np || !audioRef.current) return;
+    if (!np || !audioRef.current || !connectedRef.current) return;
     const audio = audioRef.current;
     const audioUrl = np.type === 'bumper' ? np.bumper?.audioUrl : np.song?.audioUrl;
     if (!audioUrl) return;
     setIsBumper(np.type === 'bumper');
 
-    if (audio.src !== audioUrl) {
+    // Fix: compare path only (audio.src is always absolute, audioUrl is relative)
+    const currentPath = currentUrlRef.current;
+    const needsLoad = currentPath !== audioUrl;
+
+    if (needsLoad) {
+      currentUrlRef.current = audioUrl;
       audio.src = audioUrl;
       audio.load();
     }
     audio.volume = isMuted ? 0 : volume;
 
+    // Clear previous slot timer
+    if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
+
     const seek = () => {
-      const target = np.type === 'bumper' ? Math.min(np.positionSeconds, audio.duration || np.positionSeconds)
-        : Math.min(np.positionSeconds, audio.duration || np.positionSeconds);
+      if (!connectedRef.current) return;
+      const target = Math.min(np.positionSeconds, audio.duration || np.positionSeconds);
       audio.currentTime = target;
       positionRef.current = target;
       setLocalPosition(target);
-      audio.play().then(() => { setIsPlaying(true); setConnected(true); }).catch(() => {});
+      audio.play()
+        .then(() => { setIsPlaying(true); setConnected(true); })
+        .catch(err => { console.warn('Radio play error:', err); });
+
+      // Schedule next sync at slot boundary
+      const ms = np.secondsUntilNext * 1000 + 800;
+      slotTimerRef.current = window.setTimeout(() => syncToStation(), ms);
     };
-    if (audio.readyState >= 2) seek();
-    else audio.addEventListener('canplay', seek, { once: true });
+
+    if (needsLoad) {
+      audio.addEventListener('canplay', seek, { once: true });
+    } else {
+      seek();
+    }
   }, [refetch, volume, isMuted]);
+
+  // Wire up ended event — auto-advance when audio finishes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onEnded = () => { if (connectedRef.current) syncToStation(); };
+    audio.addEventListener('ended', onEnded);
+    return () => audio.removeEventListener('ended', onEnded);
+  }, [syncToStation]);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = isMuted ? 0 : volume;
@@ -128,23 +158,19 @@ function DNARadioPlayer() {
     return () => { if (tickIntervalRef.current) clearInterval(tickIntervalRef.current); };
   }, [isPlaying]);
 
-  // Auto re-sync when slot ends
-  useEffect(() => {
-    if (!connected || !data) return;
-    const ms = data.secondsUntilNext * 1000 + 500;
-    const t = setTimeout(() => syncToStation(), ms);
-    return () => clearTimeout(t);
-  }, [data, connected, syncToStation]);
-
   const handleTuneIn = () => {
-    if (connected && isPlaying) {
+    if (connectedRef.current) {
+      // Disconnect
+      connectedRef.current = false;
       audioRef.current?.pause();
       setIsPlaying(false);
       setConnected(false);
-      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+      if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
     } else {
+      // Connect
+      connectedRef.current = true;
+      setConnected(true);
       syncToStation();
-      syncIntervalRef.current = window.setInterval(syncToStation, 5 * 60 * 1000);
     }
   };
 
