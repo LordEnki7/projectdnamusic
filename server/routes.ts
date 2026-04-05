@@ -3744,16 +3744,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     total: number; sent: number; failed: number; startedAt: string | null; finishedAt: string | null; lastError: string | null;
   } = { status: 'idle', total: 0, sent: 0, failed: 0, startedAt: null, finishedAt: null, lastError: null };
 
-  function parseFanCsv(): { name: string; email: string; location: string }[] {
-    const fsSync = require('fs');
-    const csvPath = 'attached_assets/google_1775412967207.csv';
-    if (!fsSync.existsSync(csvPath)) return [];
-    const lines = fsSync.readFileSync(csvPath, 'utf8').split('\n').filter(Boolean);
+  function parseCsvContent(content: string): { name: string; email: string; location: string }[] {
+    const lines = content.split('\n').filter(Boolean);
     const contacts: { name: string; email: string; location: string }[] = [];
-    for (let i = 1; i < lines.length; i++) {
+    // Detect if first line is a header
+    const startIdx = lines[0]?.toLowerCase().includes('@') ? 0 : 1;
+    for (let i = startIdx; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
-      // CSV: Name,E-mail,Home Address — address may contain commas; email is always col 1
       const firstComma = line.indexOf(',');
       const secondComma = line.indexOf(',', firstComma + 1);
       if (firstComma === -1 || secondComma === -1) continue;
@@ -3765,6 +3763,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     return contacts;
   }
+
+  function parseFanCsv(): { name: string; email: string; location: string }[] {
+    const fsSync = require('fs');
+    // Prefer uploaded CSV over the original attached_assets one
+    const uploadedPath = 'uploads/fan_contacts.csv';
+    const fallbackPath = 'attached_assets/google_1775412967207.csv';
+    const csvPath = fsSync.existsSync(uploadedPath) ? uploadedPath : fallbackPath;
+    if (!fsSync.existsSync(csvPath)) return [];
+    const content = fsSync.readFileSync(csvPath, 'utf8');
+    return parseCsvContent(content);
+  }
+
+  // Get paginated contact list
+  app.get("/api/admin/campaign/contacts", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const search = ((req.query.search as string) || '').toLowerCase();
+
+    let contacts = parseFanCsv();
+    if (search) {
+      contacts = contacts.filter(c =>
+        c.name.toLowerCase().includes(search) ||
+        c.email.toLowerCase().includes(search) ||
+        c.location.toLowerCase().includes(search)
+      );
+    }
+
+    const total = contacts.length;
+    const paginated = contacts.slice((page - 1) * limit, page * limit);
+    res.json({ contacts: paginated, total, page, limit, pages: Math.ceil(total / limit) });
+  });
+
+  // Upload new CSV contact list
+  app.post("/api/admin/campaign/upload-csv", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: "Forbidden" });
+
+    const { csvContent } = req.body;
+    if (!csvContent || typeof csvContent !== 'string') return res.status(400).json({ error: "No CSV content provided" });
+
+    const fsSync = require('fs');
+    fsSync.mkdirSync('uploads', { recursive: true });
+    fsSync.writeFileSync('uploads/fan_contacts.csv', csvContent, 'utf8');
+
+    const contacts = parseCsvContent(csvContent);
+    if (contacts.length === 0) return res.status(400).json({ error: "No valid contacts found in CSV" });
+
+    res.json({ message: "CSV uploaded successfully", count: contacts.length });
+  });
 
   function buildCampaignHtml(firstName: string): string {
     return `

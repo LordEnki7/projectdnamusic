@@ -112,12 +112,29 @@ interface CampaignStatus {
   lastError: string | null; contactCount: number;
 }
 
+interface FanContact { name: string; email: string; location: string; }
+interface ContactsResponse { contacts: FanContact[]; total: number; page: number; pages: number; }
+
 function CampaignTab() {
   const { toast } = useToast();
   const [campaign, setCampaign] = useState<CampaignStatus | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [activeSection, setActiveSection] = useState<'send' | 'contacts' | 'upload'>('send');
   const pollRef = useRef<number | null>(null);
+
+  // Contact list state
+  const [contacts, setContacts] = useState<FanContact[]>([]);
+  const [contactsTotal, setContactsTotal] = useState(0);
+  const [contactsPage, setContactsPage] = useState(1);
+  const [contactsPages, setContactsPages] = useState(1);
+  const [search, setSearch] = useState('');
+  const [loadingContacts, setLoadingContacts] = useState(false);
+
+  // CSV upload state
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchStatus = async () => {
     try {
@@ -126,9 +143,27 @@ function CampaignTab() {
     } catch { /* ignore */ }
   };
 
+  const fetchContacts = async (page = 1, q = search) => {
+    setLoadingContacts(true);
+    try {
+      const res = await fetch(`/api/admin/campaign/contacts?page=${page}&limit=50&search=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data: ContactsResponse = await res.json();
+        setContacts(data.contacts);
+        setContactsTotal(data.total);
+        setContactsPage(data.page);
+        setContactsPages(data.pages);
+      }
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
+  useEffect(() => { fetchStatus(); }, []);
+
   useEffect(() => {
-    fetchStatus();
-  }, []);
+    if (activeSection === 'contacts') fetchContacts(1, '');
+  }, [activeSection]);
 
   useEffect(() => {
     if (campaign?.status === 'running') {
@@ -139,22 +174,22 @@ function CampaignTab() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [campaign?.status]);
 
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    fetchContacts(1, val);
+  };
+
   const handleSend = async () => {
-    if (!confirm(`This will send the campaign email to all ${campaign?.contactCount ?? 1029} fans. Are you sure?`)) return;
+    if (!confirm(`This will send the campaign email to all ${campaign?.contactCount ?? 1029} fans. Continue?`)) return;
     setIsSending(true);
     try {
       const res = await apiRequest('POST', '/api/admin/campaign/send', {});
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to start');
-      }
-      toast({ title: "Campaign started", description: "Emails are sending in the background." });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Failed'); }
+      toast({ title: "Campaign started!", description: "Emails are going out in the background." });
       setTimeout(fetchStatus, 1000);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setIsSending(false);
-    }
+    } finally { setIsSending(false); }
   };
 
   const handleCancel = async () => {
@@ -162,148 +197,279 @@ function CampaignTab() {
     fetchStatus();
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith('.csv')) {
+      toast({ title: "Invalid file", description: "Please upload a .csv file", variant: "destructive" });
+      return;
+    }
+    setIsUploading(true);
+    setUploadStatus(null);
+    try {
+      const text = await file.text();
+      const res = await apiRequest('POST', '/api/admin/campaign/upload-csv', { csvContent: text });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      const data = await res.json();
+      setUploadStatus(`Uploaded successfully — ${data.count} contacts loaded.`);
+      toast({ title: "CSV uploaded", description: `${data.count} contacts ready to send.` });
+      fetchStatus();
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const progress = campaign && campaign.total > 0
     ? Math.round(((campaign.sent + campaign.failed) / campaign.total) * 100) : 0;
 
-  const statusColor = {
-    idle: 'text-slate-400', running: 'text-yellow-400', done: 'text-green-400', error: 'text-red-400'
-  }[campaign?.status ?? 'idle'];
-
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Mail className="w-5 h-5 text-purple-400" /> Fan Email Campaign
           </h2>
           <p className="text-slate-400 text-sm mt-1">
-            Send Shakim's personal message to all {campaign?.contactCount ?? 1029} fans from your N1M list.
+            Manage your fan contact list and send personalized outreach emails.
           </p>
         </div>
-        <Badge variant="outline" className={`${statusColor} border-current text-sm`}>
-          {campaign?.status === 'running' ? 'Sending…' :
-           campaign?.status === 'done' ? 'Completed' :
-           campaign?.status === 'error' ? 'Error' : 'Ready'}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={`text-sm ${
+            campaign?.status === 'running' ? 'text-yellow-400 border-yellow-400/40' :
+            campaign?.status === 'done' ? 'text-green-400 border-green-400/40' :
+            campaign?.status === 'error' ? 'text-red-400 border-red-400/40' : 'text-slate-400'
+          }`}>
+            {campaign?.status === 'running' ? 'Sending…' :
+             campaign?.status === 'done' ? 'Completed' :
+             campaign?.status === 'error' ? 'Error' : 'Ready'}
+          </Badge>
+        </div>
       </div>
 
-      {/* Contact list summary */}
-      <Card>
-        <CardContent className="pt-6">
+      {/* Section nav */}
+      <div className="flex gap-2 border-b border-slate-800 pb-1">
+        {(['send', 'contacts', 'upload'] as const).map(s => (
+          <button key={s} onClick={() => setActiveSection(s)}
+            data-testid={`button-campaign-section-${s}`}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors capitalize ${
+              activeSection === s ? 'text-white border-b-2 border-purple-500' : 'text-slate-400 hover:text-slate-200'
+            }`}>
+            {s === 'send' ? 'Send Campaign' : s === 'contacts' ? `Fan List (${campaign?.contactCount ?? 1029})` : 'Upload CSV'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── SEND SECTION ── */}
+      {activeSection === 'send' && (
+        <div className="space-y-5">
+          {/* Stats row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="text-center">
-              <p className="text-3xl font-bold text-white">{campaign?.contactCount ?? 1029}</p>
-              <p className="text-slate-400 text-xs mt-1">Total Contacts</p>
-            </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-green-400">{campaign?.sent ?? 0}</p>
-              <p className="text-slate-400 text-xs mt-1">Sent</p>
-            </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-red-400">{campaign?.failed ?? 0}</p>
-              <p className="text-slate-400 text-xs mt-1">Failed</p>
-            </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-purple-400">{progress}%</p>
-              <p className="text-slate-400 text-xs mt-1">Progress</p>
-            </div>
+            {[
+              { label: 'Total Contacts', value: campaign?.contactCount ?? 1029, color: 'text-white' },
+              { label: 'Sent', value: campaign?.sent ?? 0, color: 'text-green-400' },
+              { label: 'Failed', value: campaign?.failed ?? 0, color: 'text-red-400' },
+              { label: 'Progress', value: `${progress}%`, color: 'text-purple-400' },
+            ].map(stat => (
+              <Card key={stat.label}>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <p className={`text-3xl font-bold ${stat.color}`}>{stat.value}</p>
+                  <p className="text-slate-400 text-xs mt-1">{stat.label}</p>
+                </CardContent>
+              </Card>
+            ))}
           </div>
 
+          {/* Progress bar when running */}
           {campaign?.status === 'running' && (
-            <div className="mt-6">
-              <div className="flex justify-between text-xs text-slate-400 mb-1">
-                <span>Sending emails…</span>
-                <span>{campaign.sent + campaign.failed} / {campaign.total}</span>
-              </div>
-              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full transition-all duration-500"
-                  style={{ width: `${progress}%` }} />
-              </div>
-              <p className="text-slate-500 text-xs mt-2">
-                Sending in batches of 50 — estimated {Math.ceil(((campaign.total - campaign.sent - campaign.failed) * 0.12) / 60)} min remaining
-              </p>
-            </div>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex justify-between text-xs text-slate-400 mb-2">
+                  <span>Sending emails…</span>
+                  <span>{campaign.sent + campaign.failed} / {campaign.total}</span>
+                </div>
+                <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full transition-all duration-500"
+                    style={{ width: `${progress}%` }} />
+                </div>
+                <p className="text-slate-500 text-xs mt-2">
+                  Batches of 50 · ~{Math.ceil(((campaign.total - campaign.sent - campaign.failed) * 0.15) / 60)} min remaining
+                </p>
+              </CardContent>
+            </Card>
           )}
 
           {campaign?.status === 'done' && (
-            <div className="mt-6 p-4 rounded-xl bg-green-950/30 border border-green-500/30">
+            <div className="p-4 rounded-xl bg-green-950/30 border border-green-500/30">
               <p className="text-green-400 font-semibold">Campaign complete</p>
               <p className="text-slate-400 text-sm mt-1">
-                {campaign.sent} emails delivered successfully. {campaign.failed > 0 ? `${campaign.failed} failed.` : ''}
+                {campaign.sent} delivered · {campaign.failed} failed
+                {campaign.finishedAt && ` · Finished ${new Date(campaign.finishedAt).toLocaleString()}`}
               </p>
-              {campaign.finishedAt && (
-                <p className="text-slate-500 text-xs mt-1">Finished {new Date(campaign.finishedAt).toLocaleString()}</p>
+            </div>
+          )}
+
+          {/* Email preview */}
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-semibold text-sm">Email Preview</h3>
+                <Button variant="ghost" size="sm" onClick={() => setShowPreview(!showPreview)}
+                  data-testid="button-campaign-preview">
+                  {showPreview ? 'Hide' : 'Show'}
+                </Button>
+              </div>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex gap-3"><span className="text-slate-500 w-16 flex-shrink-0">From</span><span className="text-slate-300">Shakim &lt;noreply@projectdnamusic.info&gt;</span></div>
+                <div className="flex gap-3"><span className="text-slate-500 w-16 flex-shrink-0">Subject</span><span className="text-slate-300">We stepped into something bigger — come check it out</span></div>
+                <div className="flex gap-3"><span className="text-slate-500 w-16 flex-shrink-0">To</span><span className="text-slate-300">{campaign?.contactCount ?? 1029} fans, personalized by first name</span></div>
+              </div>
+              {showPreview && (
+                <div className="mt-4 p-4 rounded-xl bg-slate-900/60 border border-slate-700/50 text-sm text-slate-300 space-y-2 leading-relaxed">
+                  <p className="text-white font-semibold">Hey [First Name],</p>
+                  <p>First off… I just want to say <strong className="text-white">thank you</strong>. For real.</p>
+                  <p>Out of all the music out there, you chose to tap in with me — and that means more than you probably know.</p>
+                  <p>I've officially built out a new home for everything — music, exclusives, updates, and the full <strong className="text-white">Shakim & Project DNA</strong> experience.</p>
+                  <p className="text-purple-400 font-bold">→ projectdnamusic.info</p>
+                  <p className="text-slate-500 text-xs mt-2">+ bullet points, CTA button, P.S. about N1M drops</p>
+                </div>
               )}
-            </div>
-          )}
+            </CardContent>
+          </Card>
 
-          {campaign?.lastError && campaign.status === 'error' && (
-            <div className="mt-4 p-3 rounded-lg bg-red-950/30 border border-red-500/30">
-              <p className="text-red-400 text-sm">{campaign.lastError}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Email preview */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-white font-semibold">Email Preview</h3>
-            <Button variant="ghost" size="sm" onClick={() => setShowPreview(!showPreview)} data-testid="button-campaign-preview">
-              {showPreview ? 'Hide' : 'Show preview'}
+          {/* Action buttons */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {campaign?.status !== 'running' ? (
+              <Button onClick={handleSend} disabled={isSending}
+                className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white border-0 px-8"
+                data-testid="button-campaign-send">
+                {isSending
+                  ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Starting…</>
+                  : <><Send className="w-4 h-4 mr-2" />Send to All {campaign?.contactCount ?? 1029} Fans</>}
+              </Button>
+            ) : (
+              <Button onClick={handleCancel} variant="outline" className="border-red-500/50 text-red-400"
+                data-testid="button-campaign-cancel">Stop Campaign</Button>
+            )}
+            <Button variant="ghost" onClick={fetchStatus} size="sm" data-testid="button-campaign-refresh">
+              <RefreshCw className="w-4 h-4 mr-1" /> Refresh
             </Button>
           </div>
-          <div className="space-y-2 text-sm">
-            <div className="flex gap-2">
-              <span className="text-slate-500 w-16 flex-shrink-0">From:</span>
-              <span className="text-slate-300">Shakim &lt;noreply@projectdnamusic.info&gt;</span>
-            </div>
-            <div className="flex gap-2">
-              <span className="text-slate-500 w-16 flex-shrink-0">Subject:</span>
-              <span className="text-slate-300">We stepped into something bigger — come check it out</span>
-            </div>
-            <div className="flex gap-2">
-              <span className="text-slate-500 w-16 flex-shrink-0">To:</span>
-              <span className="text-slate-300">{campaign?.contactCount ?? 1029} fans (personalized by first name)</span>
-            </div>
+          <p className="text-slate-600 text-xs">
+            Emails send in background — batches of 50, short delays between each. You can navigate away safely.
+          </p>
+        </div>
+      )}
+
+      {/* ── CONTACTS SECTION ── */}
+      {activeSection === 'contacts' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <input
+              type="text" placeholder="Search by name, email, or city…"
+              value={search}
+              onChange={e => handleSearchChange(e.target.value)}
+              data-testid="input-campaign-search"
+              className="flex-1 min-w-48 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+            />
+            <span className="text-slate-400 text-sm">{contactsTotal} contacts</span>
           </div>
-          {showPreview && (
-            <div className="mt-4 p-4 rounded-xl bg-slate-900/60 border border-slate-700/50 text-sm text-slate-300 space-y-3 leading-relaxed">
-              <p className="text-white font-semibold">Hey [First Name],</p>
-              <p>First off… I just want to say <strong>thank you</strong>. For real.</p>
-              <p>Out of all the music out there, you chose to tap in with me and rock with what I'm creating — and that means more than you probably know.</p>
-              <p>But now… we're stepping into something bigger.</p>
-              <p>I've officially built out a new home for everything — music, exclusives, updates, and the full <strong>Shakim & Project DNA</strong> experience.</p>
-              <p className="text-purple-400 font-semibold">→ projectdnamusic.info</p>
-              <p className="text-slate-500 text-xs">… + full message with bullet points, CTA button, and P.S. about N1M</p>
+
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800">
+                      <th className="text-left text-slate-400 font-medium px-4 py-3">#</th>
+                      <th className="text-left text-slate-400 font-medium px-4 py-3">Name</th>
+                      <th className="text-left text-slate-400 font-medium px-4 py-3">Email</th>
+                      <th className="text-left text-slate-400 font-medium px-4 py-3">Location</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadingContacts ? (
+                      <tr><td colSpan={4} className="text-center py-8 text-slate-500">Loading…</td></tr>
+                    ) : contacts.length === 0 ? (
+                      <tr><td colSpan={4} className="text-center py-8 text-slate-500">No contacts found</td></tr>
+                    ) : contacts.map((c, i) => (
+                      <tr key={c.email} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                        data-testid={`row-contact-${i}`}>
+                        <td className="px-4 py-3 text-slate-500">{(contactsPage - 1) * 50 + i + 1}</td>
+                        <td className="px-4 py-3 text-white font-medium">{c.name}</td>
+                        <td className="px-4 py-3 text-slate-300">{c.email}</td>
+                        <td className="px-4 py-3 text-slate-400">{c.location}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Pagination */}
+          {contactsPages > 1 && (
+            <div className="flex items-center justify-between">
+              <Button variant="ghost" size="sm" onClick={() => { setContactsPage(p => p - 1); fetchContacts(contactsPage - 1); }}
+                disabled={contactsPage <= 1} data-testid="button-contacts-prev">← Prev</Button>
+              <span className="text-slate-400 text-sm">Page {contactsPage} of {contactsPages}</span>
+              <Button variant="ghost" size="sm" onClick={() => { setContactsPage(p => p + 1); fetchContacts(contactsPage + 1); }}
+                disabled={contactsPage >= contactsPages} data-testid="button-contacts-next">Next →</Button>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {campaign?.status !== 'running' ? (
-          <Button onClick={handleSend} disabled={isSending}
-            className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white border-0 px-8"
-            data-testid="button-campaign-send">
-            {isSending ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Starting…</> : <><Send className="w-4 h-4 mr-2" />Send to All {campaign?.contactCount ?? 1029} Fans</>}
-          </Button>
-        ) : (
-          <Button onClick={handleCancel} variant="outline" className="border-red-500/50 text-red-400"
-            data-testid="button-campaign-cancel">
-            Stop Campaign
-          </Button>
-        )}
-        <Button variant="ghost" onClick={fetchStatus} size="sm" data-testid="button-campaign-refresh">
-          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
-        </Button>
-      </div>
+      {/* ── UPLOAD SECTION ── */}
+      {activeSection === 'upload' && (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <h3 className="text-white font-semibold">Upload New Fan List</h3>
+              <p className="text-slate-400 text-sm">
+                Upload a CSV file to replace the current fan list. Format should have columns:
+                <code className="ml-1 bg-slate-800 px-1.5 py-0.5 rounded text-xs text-purple-300">Name, E-mail, Home Address</code>
+              </p>
 
-      <p className="text-slate-600 text-xs">
-        Emails are sent in batches of 50 with short delays between each batch to ensure clean delivery and avoid spam filters. The process runs in the background — you can navigate away safely.
-      </p>
+              <div
+                className="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center hover-elevate cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
+                data-testid="button-csv-upload-area">
+                <Mail className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                <p className="text-white font-medium mb-1">Click to select a CSV file</p>
+                <p className="text-slate-500 text-sm">Supports any CSV with Name, Email, Location columns</p>
+                <input
+                  ref={fileInputRef} type="file" accept=".csv" className="hidden"
+                  onChange={handleFileUpload} data-testid="input-csv-file"
+                />
+              </div>
+
+              {isUploading && (
+                <div className="flex items-center gap-2 text-yellow-400 text-sm">
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Uploading and parsing contacts…
+                </div>
+              )}
+              {uploadStatus && (
+                <div className="p-3 rounded-lg bg-green-950/30 border border-green-500/30">
+                  <p className="text-green-400 text-sm">{uploadStatus}</p>
+                </div>
+              )}
+
+              <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-700/50">
+                <p className="text-slate-300 text-xs font-medium mb-1">Expected CSV format:</p>
+                <pre className="text-slate-500 text-xs">{`Name,E-mail,Home Address\nJohn Smith,john@email.com,United States New York\nJane Doe,jane@email.com,United Kingdom London`}</pre>
+              </div>
+            </CardContent>
+          </Card>
+
+          <p className="text-slate-600 text-xs">
+            Uploading a new CSV replaces the current list for future campaigns. Previous send history is preserved.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
