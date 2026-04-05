@@ -138,7 +138,7 @@ function CampaignTab() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/admin/campaign/status');
+      const res = await fetch('/api/admin/campaign/status', { credentials: 'include' });
       if (res.ok) setCampaign(await res.json());
     } catch { /* ignore */ }
   };
@@ -146,7 +146,7 @@ function CampaignTab() {
   const fetchContacts = async (page = 1, q = search) => {
     setLoadingContacts(true);
     try {
-      const res = await fetch(`/api/admin/campaign/contacts?page=${page}&limit=50&search=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/admin/campaign/contacts?page=${page}&limit=50&search=${encodeURIComponent(q)}`, { credentials: 'include' });
       if (res.ok) {
         const data: ContactsResponse = await res.json();
         setContacts(data.contacts);
