@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import fs from "fs";
+import { FAN_CONTACTS } from "./fanContacts";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
@@ -3766,13 +3767,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   function parseFanCsv(): { name: string; email: string; location: string }[] {
-    // Prefer uploaded CSV over the original attached_assets one
+    // If admin uploaded a new CSV, use that — otherwise use hardcoded list
     const uploadedPath = 'uploads/fan_contacts.csv';
-    const fallbackPath = 'attached_assets/google_1775412967207.csv';
-    const csvPath = fs.existsSync(uploadedPath) ? uploadedPath : fallbackPath;
-    if (!fs.existsSync(csvPath)) return [];
-    const content = fs.readFileSync(csvPath, 'utf8');
-    return parseCsvContent(content);
+    if (fs.existsSync(uploadedPath)) {
+      try {
+        const content = fs.readFileSync(uploadedPath, 'utf8');
+        const parsed = parseCsvContent(content);
+        if (parsed.length > 0) return parsed;
+      } catch { /* fall through to hardcoded */ }
+    }
+    return FAN_CONTACTS;
   }
 
   // Get paginated contact list
