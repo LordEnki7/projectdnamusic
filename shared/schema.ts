@@ -838,6 +838,21 @@ export type AgentProposal = typeof agentProposals.$inferSelect;
 
 // ============ DNA RADIO ============
 
+export const radioTracks = pgTable("radio_tracks", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  title: text("title").notNull(),
+  artist: text("artist").notNull().default("Shakim & Project DNA"),
+  audioUrl: text("audio_url").notNull(),
+  duration: integer("duration").notNull().default(240),
+  isActive: integer("is_active").default(1),
+  position: integer("position").default(0),
+  createdAt: text("created_at").notNull().default(sql`now()`),
+});
+
+export const insertRadioTrackSchema = createInsertSchema(radioTracks).omit({ id: true, createdAt: true });
+export type InsertRadioTrack = z.infer<typeof insertRadioTrackSchema>;
+export type RadioTrack = typeof radioTracks.$inferSelect;
+
 export const radioBumpers = pgTable("radio_bumpers", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   title: text("title").notNull(),

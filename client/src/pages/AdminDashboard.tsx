@@ -878,6 +878,31 @@ export default function AdminDashboard() {
     }
   });
 
+  // Radio tracks (MP3 rotation)
+  const { data: radioTracksList = [] } = useQuery<{id: number, title: string, artist: string, audioUrl: string, duration: number, isActive: number, position: number}[]>({
+    queryKey: ['/api/radio/tracks'], enabled: isAdmin,
+  });
+  const [newTrackTitle, setNewTrackTitle] = useState('');
+  const [newTrackArtist, setNewTrackArtist] = useState('');
+  const [newTrackUrl, setNewTrackUrl] = useState('');
+  const [newTrackDuration, setNewTrackDuration] = useState('');
+  const addTrackMutation = useMutation({
+    mutationFn: (d: {title: string, artist: string, audioUrl: string, duration: number}) => apiRequest('POST', '/api/admin/radio/tracks', d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/radio/tracks'] });
+      setNewTrackTitle(''); setNewTrackArtist(''); setNewTrackUrl(''); setNewTrackDuration('');
+      toast({ title: 'Track added to DNA Radio rotation' });
+    },
+  });
+  const toggleTrackMutation = useMutation({
+    mutationFn: ({id, isActive}: {id: number, isActive: number}) => apiRequest('PATCH', `/api/admin/radio/tracks/${id}`, { isActive }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/radio/tracks'] }),
+  });
+  const deleteTrackMutation = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/admin/radio/tracks/${id}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['/api/radio/tracks'] }); toast({ title: 'Track removed' }); },
+  });
+
   // Radio bumpers
   const { data: radioBumpersList = [] } = useQuery<{id: number, title: string, audioUrl: string, isActive: number}[]>({
     queryKey: ['/api/radio/bumpers'], enabled: isAdmin,
@@ -1890,6 +1915,77 @@ export default function AdminDashboard() {
             )}
           </CardContent>
         </Card>
+          {/* ===== RADIO TRACKS (MP3 ROTATION) ===== */}
+          <Card className="border-cyan-500/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Radio className="h-5 w-5 text-cyan-400" />
+                DNA Radio Tracks
+                <Badge variant="outline" className="ml-auto text-cyan-400 border-cyan-500/40">
+                  {radioTracksList.filter(t => t.isActive).length} active
+                </Badge>
+              </CardTitle>
+              <CardDescription>
+                MP3 tracks that play in the DNA Radio rotation. Add a public URL or a path like <code className="text-cyan-400">/media/radio/yourfile.mp3</code> for files you upload to the server.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Input placeholder="Track title (e.g. Champions)" value={newTrackTitle}
+                  onChange={e => setNewTrackTitle(e.target.value)} data-testid="input-track-title" />
+                <Input placeholder="Artist (default: Shakim & Project DNA)" value={newTrackArtist}
+                  onChange={e => setNewTrackArtist(e.target.value)} data-testid="input-track-artist" />
+                <Input placeholder="Audio URL or /media/radio/filename.mp3" value={newTrackUrl}
+                  onChange={e => setNewTrackUrl(e.target.value)} data-testid="input-track-url" className="sm:col-span-2" />
+                <Input placeholder="Duration in seconds (e.g. 203)" value={newTrackDuration}
+                  onChange={e => setNewTrackDuration(e.target.value)} data-testid="input-track-duration" type="number" />
+                <Button
+                  onClick={() => {
+                    if (!newTrackTitle || !newTrackUrl) return;
+                    addTrackMutation.mutate({
+                      title: newTrackTitle,
+                      artist: newTrackArtist || 'Shakim & Project DNA',
+                      audioUrl: newTrackUrl,
+                      duration: parseInt(newTrackDuration) || 240,
+                    });
+                  }}
+                  disabled={!newTrackTitle || !newTrackUrl || addTrackMutation.isPending}
+                  data-testid="button-add-radio-track"
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Add to Rotation
+                </Button>
+              </div>
+              {radioTracksList.length === 0 ? (
+                <p className="text-muted-foreground text-sm py-4 text-center">No tracks yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {radioTracksList.map((t, idx) => (
+                    <div key={t.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-800">
+                      <span className="text-xs text-slate-500 w-5 text-right flex-shrink-0">{idx + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{t.title}</p>
+                        <p className="text-xs text-slate-500 truncate">{t.artist} &bull; {Math.floor(t.duration / 60)}:{String(t.duration % 60).padStart(2, '0')}</p>
+                      </div>
+                      <Badge variant={t.isActive ? 'default' : 'outline'} className="flex-shrink-0">
+                        {t.isActive ? 'On Air' : 'Off'}
+                      </Badge>
+                      <Button size="sm" variant="outline"
+                        onClick={() => toggleTrackMutation.mutate({ id: t.id, isActive: t.isActive ? 0 : 1 })}
+                        data-testid={`button-toggle-track-${t.id}`}>
+                        {t.isActive ? 'Disable' : 'Enable'}
+                      </Button>
+                      <Button size="icon" variant="ghost"
+                        onClick={() => deleteTrackMutation.mutate(t.id)}
+                        data-testid={`button-delete-track-${t.id}`}>
+                        <Trash2 className="w-4 h-4 text-red-400" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* ===== RADIO BUMPERS ===== */}
           <Card className="border-purple-500/20">
             <CardHeader>

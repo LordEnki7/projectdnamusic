@@ -5,7 +5,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { registerAIAgentRoutes } from "./aiAgents";
-import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, songRequests, fanContacts, emailSequences, emailTemplates, emailEvents, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
+import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, radioTracks, songRequests, fanContacts, emailSequences, emailTemplates, emailEvents, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
 import { asc, eq, and, sql, inArray } from "drizzle-orm";
 import Stripe from "stripe";
 import bcrypt from "bcryptjs";
@@ -1172,27 +1172,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ PLAYLIST ENDPOINTS ============
   
   // DNA Radio - synchronized now-playing calculation (with bumpers)
+  // Uses radio_tracks table if populated, otherwise falls back to songs table
   app.get("/api/radio/now-playing", async (req, res) => {
     try {
-      const allSongs = await db.select().from(songs).orderBy(asc(songs.trackNumber));
-      if (allSongs.length === 0) return res.json({ song: null });
+      // Prefer dedicated radio tracks (MP3s) over songs table
+      const activeTracks = await db.select().from(radioTracks)
+        .where(eq(radioTracks.isActive, 1))
+        .orderBy(asc(radioTracks.position), asc(radioTracks.id));
+
+      interface RadioSongSlot {
+        id: number; title: string; artist?: string | null; audioUrl: string | null;
+        duration: number | null; trackNumber?: number | null; coverUrl?: string | null;
+      }
+
+      let trackList: RadioSongSlot[];
+      if (activeTracks.length > 0) {
+        trackList = activeTracks.map(t => ({
+          id: t.id, title: t.title, artist: t.artist,
+          audioUrl: t.audioUrl, duration: t.duration, trackNumber: t.position, coverUrl: null,
+        }));
+      } else {
+        // Fallback to songs table
+        const allSongs = await db.select().from(songs).orderBy(asc(songs.trackNumber));
+        trackList = allSongs.map(s => ({
+          id: s.id, title: s.title, artist: s.artist, audioUrl: s.audioUrl,
+          duration: s.duration, trackNumber: s.trackNumber, coverUrl: s.coverUrl,
+        }));
+      }
+
+      if (trackList.length === 0) return res.json({ song: null });
 
       const activeBumpers = await db.select().from(radioBumpers).where(eq(radioBumpers.isActive, 1));
-      const DEFAULT_SLOT = 240;
       const BUMPER_SLOT = 35;
       const SONGS_BETWEEN_BUMPERS = 3;
 
-      // Build rotation: song, song, song, bumper, song, song, song, bumper, ...
+      // Build rotation: track, track, track, bumper, ...
       interface Slot {
         type: 'song' | 'bumper';
-        song?: typeof allSongs[0];
+        song?: RadioSongSlot;
         bumper?: typeof activeBumpers[0];
         slotDuration: number;
       }
       const slots: Slot[] = [];
       let bumperIdx = 0;
-      allSongs.forEach((s, i) => {
-        slots.push({ type: 'song', song: s, slotDuration: s.duration || DEFAULT_SLOT });
+      trackList.forEach((t, i) => {
+        slots.push({ type: 'song', song: t, slotDuration: t.duration || 240 });
         if ((i + 1) % SONGS_BETWEEN_BUMPERS === 0 && activeBumpers.length > 0) {
           const bumper = activeBumpers[bumperIdx % activeBumpers.length];
           slots.push({ type: 'bumper', bumper, slotDuration: BUMPER_SLOT });
@@ -1225,7 +1249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           positionSeconds: positionInSlot,
           slotDurationSeconds: currentSlot.slotDuration,
           secondsUntilNext,
-          totalSongs: allSongs.length,
+          totalSongs: trackList.length,
         });
       } else {
         res.json({
@@ -1234,12 +1258,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
           positionSeconds: positionInSlot,
           slotDurationSeconds: currentSlot.slotDuration,
           secondsUntilNext,
-          totalSongs: allSongs.length,
+          totalSongs: trackList.length,
         });
       }
     } catch (err) {
       res.status(500).json({ error: "Failed to compute radio state" });
     }
+  });
+
+  // Radio tracks management (admin)
+  app.get("/api/radio/tracks", async (req, res) => {
+    try {
+      const tracks = await db.select().from(radioTracks).orderBy(asc(radioTracks.position), asc(radioTracks.id));
+      res.json(tracks);
+    } catch { res.status(500).json({ error: "Failed to fetch radio tracks" }); }
+  });
+
+  app.post("/api/admin/radio/tracks", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0]?.isAdmin) return res.status(403).json({ error: "Forbidden" });
+    try {
+      const { title, artist, audioUrl, duration, position } = req.body;
+      if (!title || !audioUrl) return res.status(400).json({ error: "title and audioUrl are required" });
+      const [track] = await db.insert(radioTracks).values({
+        title, artist: artist || "Shakim & Project DNA",
+        audioUrl, duration: duration || 240, isActive: 1, position: position || 0,
+      }).returning();
+      res.json(track);
+    } catch { res.status(500).json({ error: "Failed to add track" }); }
+  });
+
+  app.patch("/api/admin/radio/tracks/:id", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0]?.isAdmin) return res.status(403).json({ error: "Forbidden" });
+    try {
+      const id = parseInt(req.params.id);
+      const updates: Record<string, any> = {};
+      if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
+      if (req.body.position !== undefined) updates.position = req.body.position;
+      if (req.body.title !== undefined) updates.title = req.body.title;
+      const [track] = await db.update(radioTracks).set(updates).where(eq(radioTracks.id, id)).returning();
+      res.json(track);
+    } catch { res.status(500).json({ error: "Failed to update track" }); }
+  });
+
+  app.delete("/api/admin/radio/tracks/:id", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0]?.isAdmin) return res.status(403).json({ error: "Forbidden" });
+    try {
+      await db.delete(radioTracks).where(eq(radioTracks.id, parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch { res.status(500).json({ error: "Failed to delete track" }); }
   });
 
   // Bumper management
