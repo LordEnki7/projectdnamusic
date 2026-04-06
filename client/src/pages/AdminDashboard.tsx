@@ -124,9 +124,17 @@ function CampaignTab() {
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showFollowUpPreview, setShowFollowUpPreview] = useState(false);
-  const [activeSection, setActiveSection] = useState<'send' | 'followup' | 'sequence' | 'funnel' | 'contacts' | 'upload'>('send');
+  const [activeSection, setActiveSection] = useState<'send' | 'followup' | 'sequence' | 'funnel' | 'contacts' | 'upload' | 'letter'>('send');
   const pollRef = useRef<number | null>(null);
   const followPollRef = useRef<number | null>(null);
+
+  // Quick Letter state
+  const [letterSubject, setLetterSubject] = useState('');
+  const [letterBody, setLetterBody] = useState('');
+  const [letterPreview, setLetterPreview] = useState(false);
+  const [isSendingLetter, setIsSendingLetter] = useState(false);
+  const [letterStatus, setLetterStatus] = useState<any | null>(null);
+  const letterPollRef = useRef<number | null>(null);
 
   // Contact list state — using TanStack Query for caching across remounts
   const [contactsPage, setContactsPage] = useState(1);
@@ -254,6 +262,46 @@ function CampaignTab() {
     fetchFollowUpStatus();
   };
 
+  // Quick letter handlers
+  const fetchLetterStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/campaign/quick-letter-status', { credentials: 'include' });
+      if (res.ok) setLetterStatus(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { fetchLetterStatus(); }, []);
+
+  useEffect(() => {
+    if (letterStatus?.status === 'running') {
+      letterPollRef.current = window.setInterval(fetchLetterStatus, 2000);
+    } else {
+      if (letterPollRef.current) clearInterval(letterPollRef.current);
+    }
+    return () => { if (letterPollRef.current) clearInterval(letterPollRef.current); };
+  }, [letterStatus?.status]);
+
+  const handleSendLetter = async () => {
+    if (!letterSubject.trim()) { toast({ title: "Missing subject", description: "Please enter a subject line.", variant: "destructive" }); return; }
+    if (!letterBody.trim()) { toast({ title: "Missing body", description: "Please write your message.", variant: "destructive" }); return; }
+    const count = letterStatus?.contactCount ?? 1314;
+    if (!confirm(`Send this email to all ${count} fans? This cannot be undone.`)) return;
+    setIsSendingLetter(true);
+    try {
+      const res = await apiRequest('POST', '/api/admin/campaign/send-quick-letter', { subject: letterSubject, body: letterBody });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Failed'); }
+      toast({ title: "Letter is sending!", description: "Emails are going out in the background." });
+      setTimeout(fetchLetterStatus, 1000);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setIsSendingLetter(false); }
+  };
+
+  const handleCancelLetter = async () => {
+    await apiRequest('POST', '/api/admin/campaign/cancel-quick-letter', {});
+    fetchLetterStatus();
+  };
+
   const handleEnrollAll = async () => {
     if (!confirm('Enroll all existing users in the welcome email sequence?')) return;
     try {
@@ -323,6 +371,7 @@ function CampaignTab() {
       {/* Section nav */}
       <div className="flex gap-1 border-b border-slate-800 pb-1 flex-wrap">
         {([
+          { key: 'letter', label: 'Quick Letter' },
           { key: 'send', label: 'Campaign #1' },
           { key: 'followup', label: 'Follow-Up' },
           { key: 'sequence', label: `Welcome Series (${seqStats?.enrolled ?? 0})` },
@@ -339,6 +388,141 @@ function CampaignTab() {
           </button>
         ))}
       </div>
+
+      {/* ── QUICK LETTER SECTION ── */}
+      {activeSection === 'letter' && (() => {
+        const letterProgress = letterStatus && letterStatus.total > 0
+          ? Math.round(((letterStatus.sent + letterStatus.failed) / letterStatus.total) * 100) : 0;
+        return (
+          <div className="space-y-5">
+            {/* Header stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[
+                { label: 'Total Contacts', value: letterStatus?.contactCount ?? 1314, color: 'text-white' },
+                { label: 'Sent', value: letterStatus?.sent ?? 0, color: 'text-green-400' },
+                { label: 'Failed', value: letterStatus?.failed ?? 0, color: 'text-red-400' },
+                { label: 'Progress', value: `${letterProgress}%`, color: 'text-purple-400' },
+              ].map(stat => (
+                <Card key={stat.label}>
+                  <CardContent className="pt-4 pb-4 text-center">
+                    <p className={`text-3xl font-bold ${stat.color}`}>{stat.value}</p>
+                    <p className="text-slate-400 text-xs mt-1">{stat.label}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Progress bar when running */}
+            {letterStatus?.status === 'running' && (
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="flex justify-between text-xs text-slate-400 mb-2">
+                    <span>Sending: {letterStatus.subject}</span>
+                    <span>{letterStatus.sent + letterStatus.failed} / {letterStatus.total}</span>
+                  </div>
+                  <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full transition-all duration-500"
+                      style={{ width: `${letterProgress}%` }} />
+                  </div>
+                  <div className="flex justify-between items-center mt-3">
+                    <p className="text-slate-500 text-xs">Batches of 50 · ~{Math.ceil(((letterStatus.total - letterStatus.sent - letterStatus.failed) * 0.15) / 60)} min remaining</p>
+                    <Button variant="ghost" size="sm" onClick={handleCancelLetter} className="text-red-400">Stop</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Done banner */}
+            {letterStatus?.status === 'done' && letterStatus.subject && (
+              <div className="p-4 rounded-xl bg-green-950/30 border border-green-500/30">
+                <p className="text-green-400 font-semibold">Letter sent</p>
+                <p className="text-slate-400 text-sm mt-1">
+                  "{letterStatus.subject}" · {letterStatus.sent} delivered · {letterStatus.failed} failed
+                  {letterStatus.finishedAt && ` · ${new Date(letterStatus.finishedAt).toLocaleString()}`}
+                </p>
+              </div>
+            )}
+
+            {/* Compose form */}
+            {letterStatus?.status !== 'running' && (
+              <Card>
+                <CardContent className="pt-5 space-y-4">
+                  <div>
+                    <label className="text-slate-300 text-sm font-medium mb-1.5 block">Subject Line</label>
+                    <input
+                      data-testid="input-letter-subject"
+                      type="text"
+                      value={letterSubject}
+                      onChange={e => setLetterSubject(e.target.value)}
+                      placeholder="e.g. New drop dropping tomorrow — be first"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-slate-300 text-sm font-medium">Your Message</label>
+                      <span className="text-slate-500 text-xs">{letterBody.length} chars · starts with "Hey [First Name],"</span>
+                    </div>
+                    <textarea
+                      data-testid="textarea-letter-body"
+                      value={letterBody}
+                      onChange={e => setLetterBody(e.target.value)}
+                      placeholder={"Write your letter here…\n\nUse blank lines to separate paragraphs. Each fan will be greeted by their first name automatically.\n\nExample:\nI wanted to reach out personally because you've been rocking with me since day one.\n\nThe new project drops this Friday and I wanted you to hear it before anyone else."}
+                      rows={12}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-3 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-purple-500 resize-y font-mono leading-relaxed"
+                    />
+                    <p className="text-slate-600 text-xs mt-1">Blank lines = paragraph breaks. The sign-off "Much love always, Shakim" is added automatically.</p>
+                  </div>
+
+                  {/* Preview toggle */}
+                  {letterBody.trim() && (
+                    <div>
+                      <Button variant="ghost" size="sm" onClick={() => setLetterPreview(!letterPreview)}
+                        data-testid="button-letter-preview">
+                        {letterPreview ? 'Hide Preview' : 'Show Email Preview'}
+                      </Button>
+                      {letterPreview && (
+                        <div className="mt-3 p-5 rounded-xl bg-slate-950 border border-slate-700/60 text-sm text-slate-300 space-y-3 leading-relaxed">
+                          <div className="text-center pb-3 border-b border-slate-800">
+                            <p className="text-purple-400 text-xs tracking-widest uppercase font-bold">Shakim &amp; Project DNA</p>
+                          </div>
+                          <p className="text-white font-bold text-base">Hey [First Name],</p>
+                          {letterBody.split(/\n\n+/).filter(Boolean).map((para, i) => (
+                            <p key={i} className="text-slate-300">{para}</p>
+                          ))}
+                          <div className="pt-3 border-t border-slate-800">
+                            <p className="text-white text-sm font-semibold">Much love always,</p>
+                            <p className="text-purple-400 text-sm font-bold">Shawn "Shakim" Williams</p>
+                            <p className="text-slate-500 text-xs">Shakim &amp; Project DNA</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 pt-1">
+                    <Button
+                      data-testid="button-send-quick-letter"
+                      onClick={handleSendLetter}
+                      disabled={isSendingLetter || !letterSubject.trim() || !letterBody.trim()}
+                      className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-semibold"
+                    >
+                      {isSendingLetter ? 'Starting…' : `Send to ${letterStatus?.contactCount ?? 1314} Fans`}
+                    </Button>
+                    {(letterSubject || letterBody) && (
+                      <Button variant="ghost" size="sm" onClick={() => { setLetterSubject(''); setLetterBody(''); setLetterPreview(false); }}
+                        className="text-slate-500">
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── SEND SECTION ── */}
       {activeSection === 'send' && (

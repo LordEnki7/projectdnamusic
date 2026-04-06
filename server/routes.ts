@@ -3881,6 +3881,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     total: number; sent: number; failed: number; startedAt: string | null; finishedAt: string | null; lastError: string | null;
   } = { status: 'idle', total: 0, sent: 0, failed: 0, startedAt: null, finishedAt: null, lastError: null };
 
+  // In-memory state for the quick letter blasts
+  const quickLetterState: {
+    status: 'idle' | 'running' | 'done' | 'error';
+    total: number; sent: number; failed: number; startedAt: string | null; finishedAt: string | null; lastError: string | null;
+    subject: string; preview: string;
+  } = { status: 'idle', total: 0, sent: 0, failed: 0, startedAt: null, finishedAt: null, lastError: null, subject: '', preview: '' };
+
+  function buildQuickLetterHtml(firstName: string, subject: string, body: string): string {
+    // Convert plain newlines to <p> tags
+    const paragraphs = body.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+    const bodyHtml = paragraphs.map(p =>
+      `<p style="color:#94a3b8;font-size:16px;line-height:1.7;margin:0 0 16px;">${p.replace(/\n/g, '<br/>')}</p>`
+    ).join('\n');
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#05050f;font-family:sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <p style="color:#7c3aed;font-size:11px;letter-spacing:3px;text-transform:uppercase;font-weight:700;margin:0 0 12px;">Shakim &amp; Project DNA</p>
+      <div style="width:48px;height:2px;background:linear-gradient(90deg,#7c3aed,#06b6d4);margin:0 auto;"></div>
+    </div>
+    <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:0 0 20px;">Hey ${firstName},</h1>
+    ${bodyHtml}
+    <div style="border-top:1px solid #1e293b;padding-top:24px;margin-top:24px;">
+      <p style="color:#ffffff;font-size:15px;font-weight:600;margin:0 0 4px;">Much love always,</p>
+      <p style="color:#7c3aed;font-size:17px;font-weight:700;margin:0 0 4px;">Shawn "Shakim" Williams</p>
+      <p style="color:#64748b;font-size:13px;margin:0;">Shakim &amp; Project DNA</p>
+    </div>
+    <div style="text-align:center;margin-top:32px;padding-top:24px;border-top:1px solid #0f172a;">
+      <a href="https://projectdnamusic.info" style="color:#7c3aed;font-size:13px;text-decoration:none;">projectdnamusic.info</a>
+      <p style="color:#334155;font-size:11px;margin:8px 0 0;">You're receiving this because you previously supported Shakim &amp; Project DNA. To unsubscribe, reply with "unsubscribe".</p>
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
   // Parse a single CSV line, respecting quoted fields
   function parseCsvLine(line: string): string[] {
     const fields: string[] = [];
@@ -4560,6 +4598,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (followUpState.status === 'running') {
       followUpState.status = 'done';
       followUpState.finishedAt = new Date().toISOString();
+    }
+    res.json({ message: 'Stopped' });
+  });
+
+  // ─── Quick Letter (Custom Email Blast) ──────────────────────────────────
+  app.get('/api/admin/campaign/quick-letter-status', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const contacts = await getAllFanContacts();
+    res.json({ ...quickLetterState, contactCount: contacts.length });
+  });
+
+  app.post('/api/admin/campaign/send-quick-letter', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (quickLetterState.status === 'running') return res.status(409).json({ error: 'A quick letter is already sending' });
+
+    const { subject, body } = req.body || {};
+    if (!subject || typeof subject !== 'string' || !subject.trim())
+      return res.status(400).json({ error: 'Subject is required' });
+    if (!body || typeof body !== 'string' || !body.trim())
+      return res.status(400).json({ error: 'Email body is required' });
+
+    const contacts = await getAllFanContacts();
+    if (contacts.length === 0) return res.status(400).json({ error: 'No contacts found' });
+
+    let resendClient: import('resend').Resend;
+    let fromEmail = 'Shakim <noreply@projectdnamusic.info>';
+    try {
+      const { getResendClient } = await import('./email');
+      const { client, fromEmail: fe } = await getResendClient();
+      resendClient = client;
+      if (fe) fromEmail = fe;
+    } catch {
+      return res.status(500).json({ error: 'Resend not configured — check Resend integration' });
+    }
+
+    quickLetterState.status = 'running';
+    quickLetterState.total = contacts.length;
+    quickLetterState.sent = 0;
+    quickLetterState.failed = 0;
+    quickLetterState.startedAt = new Date().toISOString();
+    quickLetterState.finishedAt = null;
+    quickLetterState.lastError = null;
+    quickLetterState.subject = subject.trim();
+    quickLetterState.preview = body.trim().slice(0, 120);
+
+    res.json({ message: 'Quick letter started', total: contacts.length });
+
+    (async () => {
+      const BATCH = 50;
+      for (let i = 0; i < contacts.length; i += BATCH) {
+        if (quickLetterState.status !== 'running') break;
+        const batch = contacts.slice(i, i + BATCH);
+        for (const contact of batch) {
+          if (quickLetterState.status !== 'running') break;
+          const firstName = contact.name.split(' ')[0] || contact.name;
+          try {
+            await resendClient.emails.send({
+              from: fromEmail,
+              to: contact.email,
+              subject: subject.trim(),
+              html: buildQuickLetterHtml(firstName, subject.trim(), body.trim()),
+              replyTo: 'shakim@projectdnamusic.info',
+            });
+            quickLetterState.sent++;
+          } catch (err: any) {
+            quickLetterState.failed++;
+            quickLetterState.lastError = err?.message || 'Unknown error';
+          }
+          await new Promise(r => setTimeout(r, 120));
+        }
+        if (i + BATCH < contacts.length) await new Promise(r => setTimeout(r, 2000));
+      }
+      quickLetterState.status = 'done';
+      quickLetterState.finishedAt = new Date().toISOString();
+    })().catch(err => {
+      quickLetterState.status = 'error';
+      quickLetterState.lastError = err?.message || 'Send failed';
+      quickLetterState.finishedAt = new Date().toISOString();
+    });
+  });
+
+  app.post('/api/admin/campaign/cancel-quick-letter', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0] || user[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (quickLetterState.status === 'running') {
+      quickLetterState.status = 'done';
+      quickLetterState.finishedAt = new Date().toISOString();
     }
     res.json({ message: 'Stopped' });
   });
