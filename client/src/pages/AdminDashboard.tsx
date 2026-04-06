@@ -1115,11 +1115,15 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 sm:grid-cols-7">
+          <TabsList className="grid w-full grid-cols-4 sm:grid-cols-8">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="content" data-testid="tab-content">Content</TabsTrigger>
             <TabsTrigger value="orders" data-testid="tab-orders">Orders</TabsTrigger>
-            <TabsTrigger value="engagement" data-testid="tab-engagement">Engagement</TabsTrigger>
+            <TabsTrigger value="engagement" data-testid="tab-engagement">Engage</TabsTrigger>
+            <TabsTrigger value="radio" data-testid="tab-radio" className="flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5" />
+              Radio
+            </TabsTrigger>
             <TabsTrigger value="campaigns" data-testid="tab-campaigns" className="flex items-center gap-1.5">
               <Mail className="w-3.5 h-3.5" />
               Campaigns
@@ -1915,6 +1919,10 @@ export default function AdminDashboard() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+
+          {/* ===== RADIO TAB ===== */}
+          <TabsContent value="radio" className="space-y-6">
           {/* ===== RADIO TRACKS (MP3 ROTATION) ===== */}
           <Card className="border-cyan-500/20">
             <CardHeader>
