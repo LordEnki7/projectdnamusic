@@ -3854,6 +3854,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       lastNameIdx = col(['lname', 'lastname']);
       emailIdx = col(['emailaddress', 'email']);
       countryIdx = col(['country']);
+    } else if (platform === 'yahoo') {
+      // Yahoo contacts export: First Name(0), Middle(1), Last(2), Email(5), HomeCity(16), HomeState(17), HomeCountry(19)
+      firstNameIdx = col(['firstname']);
+      lastNameIdx = col(['lastname']);
+      emailIdx = col(['email']);
+      countryIdx = col(['homecountry', 'workcountry']);
     } else {
       // Auto-detect / N1M / generic: Name, Email, Location
       nameIdx = col(['name', 'fullname']);

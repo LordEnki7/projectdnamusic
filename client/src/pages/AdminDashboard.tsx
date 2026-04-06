@@ -695,6 +695,7 @@ function CampaignTab() {
                     { id: 'patreon', label: 'Patreon', hint: 'Full Name, Email, Status' },
                     { id: 'distrokid', label: 'DistroKid', hint: 'First, Last, Email, Country' },
                     { id: 'mailchimp', label: 'Mailchimp', hint: 'Fname, Lname, Email' },
+                    { id: 'yahoo', label: 'Yahoo Contacts', hint: 'First Name, Last Name, Email, City/State/Country' },
                     { id: 'generic', label: 'Other / Auto-detect', hint: 'Any CSV with Email column' },
                   ].filter((p, i, arr) => arr.findIndex(x => x.id === p.id && x.label === p.label) === i).map(preset => (
                     <button
@@ -742,6 +743,7 @@ function CampaignTab() {
                   { platform: 'Patreon', cols: 'Full Name, Email, Status, ...' },
                   { platform: 'DistroKid', cols: 'First Name, Last Name, Email, ...' },
                   { platform: 'Mailchimp', cols: 'First Name, Last Name, Email Address, ...' },
+                  { platform: 'Yahoo Contacts', cols: 'First Name, Middle Name, Last Name, Company, Job Title, Email, Home Email, Work Email, ..., Home City, Home State, ..., Home Country, ...' },
                 ].map(({ platform, cols }) => (
                   <div key={platform} className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/50">
                     <span className="text-purple-400 font-medium">{platform}:</span>
