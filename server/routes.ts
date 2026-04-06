@@ -3860,6 +3860,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       lastNameIdx = col(['lastname']);
       emailIdx = col(['email']);
       countryIdx = col(['homecountry', 'workcountry']);
+    } else if (platform === 'google') {
+      // Google Contacts export (contacts.google.com): First Name(0), Last Name(2), E-mail 1 - Value(18)
+      firstNameIdx = col(['firstname']);
+      lastNameIdx = col(['lastname']);
+      emailIdx = col(['email1value', 'email']);
     } else {
       // Auto-detect / N1M / generic: Name, Email, Location
       nameIdx = col(['name', 'fullname']);
