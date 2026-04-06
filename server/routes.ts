@@ -3966,15 +3966,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const parsed = parseCsvContent(csvContent, platform || 'generic');
     if (parsed.length === 0) return res.status(400).json({ error: "No valid contacts found in CSV" });
 
-    // Upsert into DB — existing emails are skipped, new ones are added permanently
+    // Build a dedup set from BOTH fan_contacts and fans tables to prevent any duplicate sends
+    const [existingFc, existingFans] = await Promise.all([
+      db.select({ email: fanContacts.email }).from(fanContacts),
+      db.execute(sql`SELECT email FROM fans WHERE email IS NOT NULL`),
+    ]);
+    const existingEmails = new Set([
+      ...existingFc.map((r: any) => r.email.toLowerCase()),
+      ...(existingFans.rows as any[]).map((r: any) => r.email.toLowerCase()),
+    ]);
+
+    const newContacts = parsed.filter(c => !existingEmails.has(c.email.toLowerCase()));
+    const duped = parsed.length - newContacts.length;
+
+    // Insert only net-new contacts
+    const sourceName = platform ? `csv_${platform}` : 'csv_upload';
     const BATCH = 100;
     let inserted = 0;
-    for (let i = 0; i < parsed.length; i += BATCH) {
-      const batch = parsed.slice(i, i + BATCH).map(c => ({
+    for (let i = 0; i < newContacts.length; i += BATCH) {
+      const batch = newContacts.slice(i, i + BATCH).map(c => ({
         name: c.name,
         email: c.email,
         location: c.location,
-        source: 'csv_upload',
+        source: sourceName,
       }));
       const result = await db.insert(fanContacts).values(batch).onConflictDoNothing();
       inserted += (result.rowCount ?? 0);
@@ -3982,10 +3996,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const totalNow = await db.select({ id: fanContacts.id }).from(fanContacts);
     res.json({
-      message: `CSV uploaded — ${inserted} new contacts added, ${parsed.length - inserted} already existed.`,
+      message: `CSV uploaded — ${inserted} new contacts added, ${duped} duplicates skipped (already in your list).`,
       count: totalNow.length,
       added: inserted,
-      skipped: parsed.length - inserted,
+      skipped: duped,
+      duplicates: duped,
     });
   });
 
