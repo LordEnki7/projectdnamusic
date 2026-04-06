@@ -169,7 +169,18 @@ function DNARadioPlayer() {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onEnded = () => { if (connectedRef.current) syncToStation(); };
+    // For songs, sync immediately on end.
+    // For bumpers, the slot timer already handles the transition — don't re-sync
+    // or we'd try to replay the same bumper before the server slot expires.
+    const onEnded = () => {
+      if (!connectedRef.current) return;
+      if (isBumper) {
+        // Bumper ended naturally — just wait for the slot timer (set in syncToStation)
+        // which will fire when the server slot boundary passes.
+        return;
+      }
+      syncToStation();
+    };
 
     const onWaiting = () => {
       if (!connectedRef.current) return;

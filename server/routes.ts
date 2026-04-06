@@ -1235,7 +1235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (trackList.length === 0) return res.json({ song: null });
 
       const activeBumpers = await db.select().from(radioBumpers).where(eq(radioBumpers.isActive, 1));
-      const BUMPER_SLOT = 35;
+      const BUMPER_SLOT = 12; // tags are 5-10 s; 12 s gives headroom for loading
       const SONGS_BETWEEN_BUMPERS = 3;
 
       // Build rotation: track, track, track, bumper, ...
