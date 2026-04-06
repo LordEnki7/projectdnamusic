@@ -1106,6 +1106,16 @@ export default function AdminDashboard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/radio/bumpers'] }),
   });
 
+  // Live listener count — updates every 30 s
+  const { data: listenerData } = useQuery<{ listeners: number }>({
+    queryKey: ['/api/radio/listener-count'],
+    queryFn: () => fetch('/api/radio/listener-count').then(r => r.json()),
+    refetchInterval: 30_000,
+    staleTime: 0,
+    enabled: isAdmin,
+  });
+  const liveListenerCount = listenerData?.listeners ?? 0;
+
   // Song requests
   const { data: songRequestsList = [] } = useQuery<{id: number, fanName: string, songTitle: string, artist: string | null, message: string | null, status: string, createdAt: string}[]>({
     queryKey: ['/api/admin/song-requests'], enabled: isAdmin,
@@ -2107,6 +2117,34 @@ export default function AdminDashboard() {
 
           {/* ===== RADIO TAB ===== */}
           <TabsContent value="radio" className="space-y-6">
+
+          {/* Live listener count */}
+          <Card className="border-cyan-500/30 bg-gradient-to-br from-cyan-950/30 to-purple-950/20">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center gap-6 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Radio className="w-8 h-8 text-cyan-400" />
+                    {liveListenerCount > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />}
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold text-white">{liveListenerCount}</p>
+                    <p className="text-cyan-400 text-xs font-medium tracking-wide uppercase">Live Listeners Right Now</p>
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-slate-400 text-sm">
+                    {liveListenerCount === 0
+                      ? 'No one is tuned in right now. Count updates every 30 seconds automatically.'
+                      : liveListenerCount === 1
+                      ? '1 person is actively listening to DNA Radio. Count refreshes every 30 seconds.'
+                      : `${liveListenerCount} people are actively listening to DNA Radio. Count refreshes every 30 seconds.`}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* ===== RADIO TRACKS (MP3 ROTATION) ===== */}
           <Card className="border-cyan-500/20">
             <CardHeader>

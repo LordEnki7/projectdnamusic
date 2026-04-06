@@ -1173,6 +1173,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // DNA Radio - synchronized now-playing calculation (with bumpers)
   // Uses radio_tracks table if populated, otherwise falls back to songs table
+  // ─── Radio Listener Tracking ─────────────────────────────────────────────
+  // Simple in-memory heartbeat registry: key → lastSeenMs
+  const listenerRegistry = new Map<string, number>();
+  const LISTENER_TTL_MS = 90_000; // consider gone after 90 s of silence
+
+  function pruneListeners() {
+    const cutoff = Date.now() - LISTENER_TTL_MS;
+    for (const [key, ts] of listenerRegistry) {
+      if (ts < cutoff) listenerRegistry.delete(key);
+    }
+  }
+  setInterval(pruneListeners, 30_000);
+
+  function activeListenerCount() {
+    pruneListeners();
+    return listenerRegistry.size;
+  }
+
+  // Client sends a ping every 30 s while the radio is actively playing.
+  // Key = session id (if logged in) or IP + random cookie so anonymous users are counted too.
+  app.post('/api/radio/ping', (req, res) => {
+    const sessionId = (req.session as any)?.id || req.sessionID;
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+    const key = sessionId || ip;
+    listenerRegistry.set(key, Date.now());
+    res.json({ listeners: activeListenerCount() });
+  });
+
+  app.get('/api/radio/listener-count', (req, res) => {
+    res.json({ listeners: activeListenerCount() });
+  });
+
   app.get("/api/radio/now-playing", async (req, res) => {
     try {
       // Prefer dedicated radio tracks (MP3s) over songs table

@@ -72,10 +72,12 @@ function DNARadioPlayer() {
   const [localPosition, setLocalPosition] = useState(0);
   const [isBumper, setIsBumper] = useState(false);
   const [npData, setNpData] = useState<NowPlayingData | null>(null);
+  const [listenerCount, setListenerCount] = useState<number | null>(null);
   const positionRef = useRef(0);
   const tickIntervalRef = useRef<number | null>(null);
   const slotTimerRef = useRef<number | null>(null);
   const stallTimerRef = useRef<number | null>(null);
+  const pingIntervalRef = useRef<number | null>(null);
   const connectedRef = useRef(false);
   const currentUrlRef = useRef('');
 
@@ -223,6 +225,26 @@ function DNARadioPlayer() {
     return () => { if (tickIntervalRef.current) clearInterval(tickIntervalRef.current); };
   }, [isPlaying, isBuffering]);
 
+  // Heartbeat ping — tells server this listener is still active
+  useEffect(() => {
+    if (isPlaying && !isBuffering && connected) {
+      const sendPing = async () => {
+        try {
+          const res = await fetch('/api/radio/ping', { method: 'POST', credentials: 'include' });
+          if (res.ok) {
+            const data = await res.json();
+            setListenerCount(data.listeners);
+          }
+        } catch { /* ignore */ }
+      };
+      sendPing(); // immediate ping on connect
+      pingIntervalRef.current = window.setInterval(sendPing, 30_000);
+    } else {
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+    }
+    return () => { if (pingIntervalRef.current) clearInterval(pingIntervalRef.current); };
+  }, [isPlaying, isBuffering, connected]);
+
   const handleTuneIn = () => {
     if (connectedRef.current) {
       connectedRef.current = false;
@@ -251,13 +273,21 @@ function DNARadioPlayer() {
             {connected && isPlaying && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />}
           </div>
           <span className="text-purple-300 font-bold tracking-widest text-sm uppercase font-mono">DNA Radio — Live Station</span>
-          <Badge variant="outline" className="ml-auto border-purple-500/50 text-purple-300 text-xs">
-            {isBuffering
-              ? <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Buffering…</span>
-              : connected && isPlaying
-                ? <span className="flex items-center gap-1"><Wifi className="w-3 h-3" /> On Air</span>
-                : <span className="flex items-center gap-1"><WifiOff className="w-3 h-3" /> Offline</span>}
-          </Badge>
+          <div className="ml-auto flex items-center gap-2">
+            {connected && isPlaying && listenerCount !== null && (
+              <Badge variant="outline" className="border-cyan-500/40 text-cyan-300 text-xs">
+                <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full mr-1 animate-pulse inline-block" />
+                {listenerCount} listening
+              </Badge>
+            )}
+            <Badge variant="outline" className="border-purple-500/50 text-purple-300 text-xs">
+              {isBuffering
+                ? <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Buffering…</span>
+                : connected && isPlaying
+                  ? <span className="flex items-center gap-1"><Wifi className="w-3 h-3" /> On Air</span>
+                  : <span className="flex items-center gap-1"><WifiOff className="w-3 h-3" /> Offline</span>}
+            </Badge>
+          </div>
         </div>
 
         {isBumper && connected && (
