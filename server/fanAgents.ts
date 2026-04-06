@@ -13,7 +13,7 @@ import {
 import { eq, desc, sql, and, lt } from "drizzle-orm";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY });
 
 const now = () => new Date().toISOString();
 
