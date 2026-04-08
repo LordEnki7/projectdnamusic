@@ -1256,29 +1256,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      const totalCycle = slots.reduce((acc, s) => acc + s.slotDuration, 0);
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      const posInCycle = nowSeconds % totalCycle;
+      const totalCycleMs = slots.reduce((acc, s) => acc + s.slotDuration, 0) * 1000;
+      // Use millisecond precision so the client can seek to sub-second accuracy
+      const nowMs = Date.now();
+      const posInCycleMs = nowMs % totalCycleMs;
 
-      let elapsed = 0;
+      let elapsedMs = 0;
       let currentSlot = slots[0];
       for (const slot of slots) {
-        if (posInCycle < elapsed + slot.slotDuration) {
+        const slotMs = slot.slotDuration * 1000;
+        if (posInCycleMs < elapsedMs + slotMs) {
           currentSlot = slot;
           break;
         }
-        elapsed += slot.slotDuration;
+        elapsedMs += slotMs;
       }
 
-      const positionInSlot = posInCycle - elapsed;
-      const secondsUntilNext = currentSlot.slotDuration - positionInSlot;
+      const positionMs = posInCycleMs - elapsedMs;
+      const positionSeconds = positionMs / 1000;
+      const secondsUntilNext = currentSlot.slotDuration - positionSeconds;
 
       if (currentSlot.type === 'bumper') {
         res.json({
           type: 'bumper',
           bumper: currentSlot.bumper,
           song: null,
-          positionSeconds: positionInSlot,
+          positionSeconds,
           slotDurationSeconds: currentSlot.slotDuration,
           secondsUntilNext,
           totalSongs: trackList.length,
@@ -1287,7 +1290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({
           type: 'song',
           song: currentSlot.song,
-          positionSeconds: positionInSlot,
+          positionSeconds,
           slotDurationSeconds: currentSlot.slotDuration,
           secondsUntilNext,
           totalSongs: trackList.length,
