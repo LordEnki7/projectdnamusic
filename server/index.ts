@@ -374,10 +374,17 @@ async function seedProductionDatabase() {
       log(`Radio: ✓ seeded ${radioBumpersData.length} bumpers`);
     } else {
       // Fix any bumpers still pointing to /attached_assets/ (wrong path)
-      const brokenBumpers = existingBumpers.filter(b => b.audioUrl?.startsWith('/attached_assets/'));
+      const brokenBumpers = existingBumpers.filter(b =>
+        b.audioUrl?.startsWith('/attached_assets/') || b.audioUrl?.endsWith('.wav')
+      );
       for (const bumper of brokenBumpers) {
-        const filename = bumper.audioUrl!.split('/').pop()!;
-        const fixedUrl = `/media/bumpers/${filename}`;
+        let fixedUrl = bumper.audioUrl!;
+        if (fixedUrl.startsWith('/attached_assets/')) {
+          fixedUrl = `/media/bumpers/${fixedUrl.split('/').pop()!}`;
+        }
+        if (fixedUrl.endsWith('.wav')) {
+          fixedUrl = fixedUrl.replace('.wav', '.mp3');
+        }
         await db.update(radioBumpers).set({ audioUrl: fixedUrl }).where(eq(radioBumpers.id, bumper.id));
         log(`Radio: fixed bumper URL id=${bumper.id} → ${fixedUrl}`);
       }

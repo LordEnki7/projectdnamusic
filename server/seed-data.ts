@@ -150,12 +150,12 @@ export const radioTracksData = [
 
 // Station drop / bumper WAV tags — play between every 3 songs on DNA Radio & My Station
 export const radioBumpersData = [
-  { title: "Project DNA Radio Tag 1", audioUrl: "/media/bumpers/Project_DNA_Radio_tags1_01_1775235938634.wav" },
-  { title: "Project DNA Radio Tag 2", audioUrl: "/media/bumpers/Project_DNA_Radio_tag2a_01_1775235938633.wav" },
-  { title: "Project DNA Radio Tag 3", audioUrl: "/media/bumpers/Project_DNA_Radio_tags3_01_1775235938634.wav" },
-  { title: "Project DNA Radio Tag 4", audioUrl: "/media/bumpers/Project_DNA_Radio_tags4_01_1775235938635.wav" },
-  { title: "Project DNA Radio Tag 5", audioUrl: "/media/bumpers/Project_DNA_Radio_tags5_01_1775235938635.wav" },
-  { title: "Project DNA Radio Tag 6", audioUrl: "/media/bumpers/Project_DNA_Radio_tags6_01_1775235938635.wav" },
-  { title: "Project DNA Radio Tag 7", audioUrl: "/media/bumpers/Project_DNA_Radio_tags7_01_1775235938636.wav" },
-  { title: "Project DNA Radio Tag 8", audioUrl: "/media/bumpers/Project_DNA_Radio_tags8_01_1775235938636.wav" },
+  { title: "Project DNA Radio Tag 1", audioUrl: "/media/bumpers/Project_DNA_Radio_tags1_01_1775235938634.mp3" },
+  { title: "Project DNA Radio Tag 2", audioUrl: "/media/bumpers/Project_DNA_Radio_tag2a_01_1775235938633.mp3" },
+  { title: "Project DNA Radio Tag 3", audioUrl: "/media/bumpers/Project_DNA_Radio_tags3_01_1775235938634.mp3" },
+  { title: "Project DNA Radio Tag 4", audioUrl: "/media/bumpers/Project_DNA_Radio_tags4_01_1775235938635.mp3" },
+  { title: "Project DNA Radio Tag 5", audioUrl: "/media/bumpers/Project_DNA_Radio_tags5_01_1775235938635.mp3" },
+  { title: "Project DNA Radio Tag 6", audioUrl: "/media/bumpers/Project_DNA_Radio_tags6_01_1775235938635.mp3" },
+  { title: "Project DNA Radio Tag 7", audioUrl: "/media/bumpers/Project_DNA_Radio_tags7_01_1775235938636.mp3" },
+  { title: "Project DNA Radio Tag 8", audioUrl: "/media/bumpers/Project_DNA_Radio_tags8_01_1775235938636.mp3" },
 ];

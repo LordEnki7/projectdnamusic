@@ -1239,7 +1239,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const activeBumpers = await db.select().from(radioBumpers).where(eq(radioBumpers.isActive, 1));
       const BUMPER_SLOT = 12; // tags are 5-10 s; 12 s gives headroom for loading
-      const SONGS_BETWEEN_BUMPERS = 3;
+      const SONGS_BETWEEN_BUMPERS = 1;
 
       // Build rotation: track, track, track, bumper, ...
       interface Slot {
@@ -1420,7 +1420,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/media/bumpers", (req, res, next) => {
     const file = path.join(bumpersDir, path.basename(req.path));
     if (fs.existsSync(file)) {
-      res.setHeader("Content-Type", "audio/wav");
+      const ext = path.extname(req.path).toLowerCase();
+      const contentType = ext === ".mp3" ? "audio/mpeg" : ext === ".wav" ? "audio/wav" : "audio/mpeg";
+      res.setHeader("Content-Type", contentType);
       res.setHeader("Accept-Ranges", "bytes");
       res.setHeader("Cache-Control", "public, max-age=86400");
       fs.createReadStream(file).pipe(res);
