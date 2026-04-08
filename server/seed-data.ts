@@ -147,3 +147,15 @@ export const radioTracksData = [
   { position: 20, title: "Those Eyez",             artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Those_Eyez_1775654892940.mp3",             duration: 198 },
   { position: 21, title: "Rushing to No Where",    artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Rushing_to_No_Where_1775654892941.mp3",    duration: 224 },
 ];
+
+// Station drop / bumper WAV tags — play between every 3 songs on DNA Radio & My Station
+export const radioBumpersData = [
+  { title: "Project DNA Radio Tag 1", audioUrl: "/media/bumpers/Project_DNA_Radio_tags1_01_1775235938634.wav" },
+  { title: "Project DNA Radio Tag 2", audioUrl: "/media/bumpers/Project_DNA_Radio_tag2a_01_1775235938633.wav" },
+  { title: "Project DNA Radio Tag 3", audioUrl: "/media/bumpers/Project_DNA_Radio_tags3_01_1775235938634.wav" },
+  { title: "Project DNA Radio Tag 4", audioUrl: "/media/bumpers/Project_DNA_Radio_tags4_01_1775235938635.wav" },
+  { title: "Project DNA Radio Tag 5", audioUrl: "/media/bumpers/Project_DNA_Radio_tags5_01_1775235938635.wav" },
+  { title: "Project DNA Radio Tag 6", audioUrl: "/media/bumpers/Project_DNA_Radio_tags6_01_1775235938635.wav" },
+  { title: "Project DNA Radio Tag 7", audioUrl: "/media/bumpers/Project_DNA_Radio_tags7_01_1775235938636.wav" },
+  { title: "Project DNA Radio Tag 8", audioUrl: "/media/bumpers/Project_DNA_Radio_tags8_01_1775235938636.wav" },
+];

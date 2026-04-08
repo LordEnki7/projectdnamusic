@@ -1414,6 +1414,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Serve bumper WAV files in production (Vite handles this in dev via client/public)
+  const bumpersDir = path.join(process.cwd(), "client", "public", "media", "bumpers");
+  if (!fs.existsSync(bumpersDir)) fs.mkdirSync(bumpersDir, { recursive: true });
+  app.use("/media/bumpers", (req, res, next) => {
+    const file = path.join(bumpersDir, path.basename(req.path));
+    if (fs.existsSync(file)) {
+      res.setHeader("Content-Type", "audio/wav");
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      fs.createReadStream(file).pipe(res);
+    } else {
+      next();
+    }
+  });
+
   // Bumper management
   app.get("/api/radio/bumpers", async (req, res) => {
     try {

@@ -5,8 +5,8 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { ensureLocalStorageExists } from "./mediaStorage";
 import { db } from "./db";
-import { songs, merchandise, beats, membershipTiers, users, agentJobs, radioTracks } from "@shared/schema";
-import { allSongsData, merchandiseData, beatsData, membershipTiersData, radioTracksData } from "./seed-data";
+import { songs, merchandise, beats, membershipTiers, users, agentJobs, radioTracks, radioBumpers } from "@shared/schema";
+import { allSongsData, merchandiseData, beatsData, membershipTiersData, radioTracksData, radioBumpersData } from "./seed-data";
 import { eq, isNull, sql as drizzleSql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { runAdvisorScanJob } from "./aiAgents";
@@ -357,6 +357,36 @@ async function seedProductionDatabase() {
     }
   } catch (err: any) {
     log(`Radio seed error: ${err.message}`);
+  }
+
+  // ── Always ensure DNA Radio bumpers are seeded (dev + prod) ─────────────────
+  try {
+    const existingBumpers = await db.select().from(radioBumpers);
+    if (existingBumpers.length === 0) {
+      log("Radio: seeding 8 default bumpers...");
+      for (const bumper of radioBumpersData) {
+        await db.insert(radioBumpers).values({
+          title: bumper.title,
+          audioUrl: bumper.audioUrl,
+          isActive: 1,
+        });
+      }
+      log(`Radio: ✓ seeded ${radioBumpersData.length} bumpers`);
+    } else {
+      // Fix any bumpers still pointing to /attached_assets/ (wrong path)
+      const brokenBumpers = existingBumpers.filter(b => b.audioUrl?.startsWith('/attached_assets/'));
+      for (const bumper of brokenBumpers) {
+        const filename = bumper.audioUrl!.split('/').pop()!;
+        const fixedUrl = `/media/bumpers/${filename}`;
+        await db.update(radioBumpers).set({ audioUrl: fixedUrl }).where(eq(radioBumpers.id, bumper.id));
+        log(`Radio: fixed bumper URL id=${bumper.id} → ${fixedUrl}`);
+      }
+      if (brokenBumpers.length === 0) {
+        log(`Radio: ${existingBumpers.length} bumper(s) already in DB — skipping seed`);
+      }
+    }
+  } catch (err: any) {
+    log(`Radio bumper seed error: ${err.message}`);
   }
 }
 
