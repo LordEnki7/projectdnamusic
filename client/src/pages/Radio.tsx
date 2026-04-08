@@ -82,6 +82,7 @@ function DNARadioPlayer() {
   const connectedRef = useRef(false);
   const currentUrlRef = useRef('');
   const currentSlotKeyRef = useRef(''); // tracks "songId-slotStart" to detect same-slot repeats
+  const isSyncingRef = useRef(false); // prevents concurrent syncToStation() calls
 
   const { refetch } = useQuery<NowPlayingData>({
     queryKey: ['/api/radio/now-playing'],
@@ -101,8 +102,17 @@ function DNARadioPlayer() {
 
   const syncToStation = useCallback(async () => {
     if (!connectedRef.current) return;
-    setIsBuffering(true);
 
+    // Prevent two syncs from running at the same time — the second one
+    // would race against the first and corrupt the slot timer.
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+
+    // Cancel any pending slot timer NOW (before the async fetch) so it
+    // cannot fire and spawn another concurrent syncToStation while we wait.
+    if (slotTimerRef.current) { clearTimeout(slotTimerRef.current); slotTimerRef.current = null; }
+
+    setIsBuffering(true);
     const fetchStart = Date.now();
 
     let np: NowPlayingData | null = null;
@@ -112,6 +122,8 @@ function DNARadioPlayer() {
     } catch {
       np = null;
     }
+
+    isSyncingRef.current = false;
 
     if (!np || !audioRef.current || !connectedRef.current) {
       setIsBuffering(false);
@@ -129,19 +141,28 @@ function DNARadioPlayer() {
 
     if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
 
-    // Guard: if the server returns the same audio slot we're already playing and we're
-    // near the end of the audio file (within 5s), the audio duration is shorter than the
-    // slot duration. Don't restart — just wait for the slot to advance on the server clock.
+    // Guard: same slot returned again — don't restart the audio, just wait for the
+    // slot boundary to pass on the server clock.
     const slotKey = audioUrl;
-    if (slotKey === currentSlotKeyRef.current && isSongSlot) {
-      const audioDur = audio.duration && isFinite(audio.duration) ? audio.duration : Infinity;
-      const nearEnd = audioDur - (audio.currentTime ?? 0) < 5;
-      if (nearEnd) {
-        const totalElapsedSec = (Date.now() - fetchStart) / 1000;
-        const waitMs = Math.max(np.secondsUntilNext - totalElapsedSec, 1) * 1000 + 500;
-        slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
-        setIsBuffering(false);
-        return;
+    if (slotKey === currentSlotKeyRef.current) {
+      const totalElapsedSec = (Date.now() - fetchStart) / 1000;
+      const waitMs = Math.max(np.secondsUntilNext - totalElapsedSec, 1) * 1000 + 500;
+      if (isSongSlot) {
+        // For songs: only bail if the audio is nearly finished (shorter than the DB duration)
+        const audioDur = audio.duration && isFinite(audio.duration) ? audio.duration : Infinity;
+        const nearEnd = audioDur - (audio.currentTime ?? 0) < 5;
+        if (nearEnd) {
+          slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
+          setIsBuffering(false);
+          return;
+        }
+      } else {
+        // For bumpers: if the drop already finished playing, never replay it — wait.
+        if (audio.ended || isBumperRef.current) {
+          slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
+          setIsBuffering(false);
+          return;
+        }
       }
     }
     currentSlotKeyRef.current = slotKey;
