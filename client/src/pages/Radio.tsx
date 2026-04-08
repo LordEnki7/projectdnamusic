@@ -430,6 +430,7 @@ function MyStationPlayer() {
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const [currentTime, setCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
   const songsSinceBumperRef = useRef(0);
 
   const { data: playlists = [] } = useQuery<Playlist[]>({ queryKey: ['/api/playlists'], enabled: !!user });
@@ -474,7 +475,13 @@ function MyStationPlayer() {
     audio.src = currentSong.audioUrl;
     audio.volume = isMuted ? 0 : volume;
     audio.load();
+    setAudioDuration(0); // reset until metadata loads
+    const onMeta = () => {
+      if (audio.duration && isFinite(audio.duration)) setAudioDuration(audio.duration);
+    };
+    audio.addEventListener('loadedmetadata', onMeta, { once: true });
     if (isPlaying && !isBumperPlaying) audio.play().catch(() => {});
+    return () => audio.removeEventListener('loadedmetadata', onMeta);
   }, [currentIndex, selectedPlaylistId]);
 
   useEffect(() => {
@@ -498,7 +505,9 @@ function MyStationPlayer() {
   const skipTo = (idx: number) => { setCurrentIndex(idx); setCurrentTime(0); setIsPlaying(true); setIsBumperPlaying(false); };
   const skipNext = () => skipTo((currentIndex + 1) % Math.max(songs.length, 1));
   const skipPrev = () => skipTo((currentIndex - 1 + songs.length) % Math.max(songs.length, 1));
-  const duration = currentSong?.duration || 240;
+  // Use actual audio duration from the browser — never rely on DB (often null).
+  // Fall back to DB duration only if the browser hasn't loaded metadata yet.
+  const duration = audioDuration || currentSong?.duration || 0;
 
   if (!user) {
     return (

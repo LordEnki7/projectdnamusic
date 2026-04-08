@@ -11,8 +11,9 @@ import { eq, isNull, sql as drizzleSql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { runAdvisorScanJob } from "./aiAgents";
 import { runDailyReportAgent } from "./fanAgents";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import path from "path";
+import http from "http";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -390,6 +391,73 @@ async function seedProductionDatabase() {
       log(`Radio duration fix error: ${err.message}`);
     }
   })();
+
+  // ─── Auto-fix song durations (from songs table) ────────────────────────────
+  // Songs in the catalog are WAV files stored in object storage; their duration
+  // is often null.  WAV headers are always exactly 44 bytes at the start, so we
+  // fetch just those bytes via a Range request, parse byte_rate + total size,
+  // and compute duration instantly — no need to download the whole file.
+  // Deferred 15s so the server is ready to serve requests before we hit it.
+  setTimeout(async () => {
+    try {
+      const allSongs = await db.select({ id: songs.id, audioUrl: songs.audioUrl, duration: songs.duration }).from(songs);
+      const needsFix = allSongs.filter(s => !s.duration && s.audioUrl);
+      if (needsFix.length === 0) return;
+      log(`Songs: reading WAV durations for ${needsFix.length} song(s)...`);
+
+      for (const song of needsFix) {
+        try {
+          const filePath = song.audioUrl!.replace(/^\/public-objects\//, '');
+          const port = process.env.PORT || 5000;
+          const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+          const url = `http://127.0.0.1:${port}/public-objects/${encodedPath}`;
+
+          // Fetch just the first 100 bytes (covers the WAV/fmt header + data chunk marker)
+          const headerBuf: Buffer = await new Promise((resolve, reject) => {
+            const req = http.get(url, { headers: { Range: 'bytes=0-99' } }, (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (c: Buffer) => chunks.push(c));
+              res.on('end', () => resolve(Buffer.concat(chunks)));
+              res.on('error', reject);
+            });
+            req.on('error', reject);
+            req.setTimeout(8000, () => { req.destroy(); reject(new Error('timeout')); });
+          });
+
+          // WAV header layout (PCM):
+          //   0- 3: "RIFF"
+          //   4- 7: total file size - 8 (little-endian)
+          //   8-11: "WAVE"
+          //  12-15: "fmt "
+          //  16-19: fmt chunk size (16 for PCM)
+          //  20-21: audio format (1 = PCM)
+          //  22-23: num channels
+          //  24-27: sample rate
+          //  28-31: byte rate (sample_rate * channels * bits/8)
+          //  32-33: block align
+          //  34-35: bits per sample
+          //  36-39: "data"
+          //  40-43: data chunk size (= total audio bytes)
+          if (headerBuf.length < 44) throw new Error('header too short');
+          const riff = headerBuf.slice(0, 4).toString('ascii');
+          if (riff !== 'RIFF') throw new Error('not a WAV');
+          const byteRate = headerBuf.readUInt32LE(28);        // bytes per second
+          const dataSize = headerBuf.readUInt32LE(40);        // total audio bytes
+          if (byteRate <= 0 || dataSize <= 0) throw new Error('bad header');
+          const secs = Math.round(dataSize / byteRate);
+          if (secs <= 0) throw new Error('zero duration');
+
+          await db.update(songs).set({ duration: secs }).where(eq(songs.id, song.id));
+          log(`Songs: ${song.id} → ${secs}s`);
+        } catch (e: any) {
+          log(`Songs: skipped ${song.id} (${e.message})`);
+        }
+      }
+      log('Songs: duration update complete.');
+    } catch (err: any) {
+      log(`Songs duration fix error: ${err.message}`);
+    }
+  }, 15_000);
 
   // ─── Daily Auto-Scan Scheduler ─────────────────────────────────────────────
   async function scheduleDailyScan() {
