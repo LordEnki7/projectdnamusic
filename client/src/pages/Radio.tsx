@@ -141,28 +141,20 @@ function DNARadioPlayer() {
 
     if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
 
-    // Guard: same slot returned again — don't restart the audio, just wait for the
-    // slot boundary to pass on the server clock.
+    // Guard: same SONG slot returned again (audio shorter than DB duration) —
+    // don't restart it, just wait for the slot boundary to pass on the server clock.
+    // Bumpers don't need this guard — the stale-closure fix and concurrency lock
+    // already prevent double-play, and bumpers must always play fresh from position 0.
     const slotKey = audioUrl;
-    if (slotKey === currentSlotKeyRef.current) {
-      const totalElapsedSec = (Date.now() - fetchStart) / 1000;
-      const waitMs = Math.max(np.secondsUntilNext - totalElapsedSec, 1) * 1000 + 500;
-      if (isSongSlot) {
-        // For songs: only bail if the audio is nearly finished (shorter than the DB duration)
-        const audioDur = audio.duration && isFinite(audio.duration) ? audio.duration : Infinity;
-        const nearEnd = audioDur - (audio.currentTime ?? 0) < 5;
-        if (nearEnd) {
-          slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
-          setIsBuffering(false);
-          return;
-        }
-      } else {
-        // For bumpers: if the drop already finished playing, never replay it — wait.
-        if (audio.ended || isBumperRef.current) {
-          slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
-          setIsBuffering(false);
-          return;
-        }
+    if (slotKey === currentSlotKeyRef.current && isSongSlot) {
+      const audioDur = audio.duration && isFinite(audio.duration) ? audio.duration : Infinity;
+      const nearEnd = audioDur - (audio.currentTime ?? 0) < 5;
+      if (nearEnd) {
+        const totalElapsedSec = (Date.now() - fetchStart) / 1000;
+        const waitMs = Math.max(np.secondsUntilNext - totalElapsedSec, 1) * 1000 + 500;
+        slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
+        setIsBuffering(false);
+        return;
       }
     }
     currentSlotKeyRef.current = slotKey;
