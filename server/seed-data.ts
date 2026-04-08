@@ -142,5 +142,8 @@ export const radioTracksData = [
   { position: 15, title: "No Bad Energy",          artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_No_bad_Energy_1775487563232.mp3",          duration: 211 },
   { position: 16, title: "No Power",               artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_No_Power_1775487563233.mp3",               duration: 233 },
   { position: 17, title: "Nobody But Me",          artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Nobody_But_Me_1775487563233.mp3",          duration: 186 },
-  { position: 18, title: "Poker",                  artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Poker_1775487563233.mp3",                  duration: 285 },
+  { position: 18, title: "Poker",                  artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Poker_1775654892941.mp3",                  duration: 285 },
+  { position: 19, title: "Yeah Yeah Yeah",         artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Yeah_Yeah_Yeah_1775654892937.mp3",         duration: 196 },
+  { position: 20, title: "Those Eyez",             artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Those_Eyez_1775654892940.mp3",             duration: 198 },
+  { position: 21, title: "Rushing to No Where",    artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Rushing_to_No_Where_1775654892941.mp3",    duration: 224 },
 ];
