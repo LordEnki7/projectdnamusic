@@ -5,12 +5,14 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { ensureLocalStorageExists } from "./mediaStorage";
 import { db } from "./db";
-import { songs, merchandise, beats, membershipTiers, users, agentJobs } from "@shared/schema";
+import { songs, merchandise, beats, membershipTiers, users, agentJobs, radioTracks } from "@shared/schema";
 import { allSongsData, merchandiseData, beatsData, membershipTiersData } from "./seed-data";
 import { eq, isNull, sql as drizzleSql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { runAdvisorScanJob } from "./aiAgents";
 import { runDailyReportAgent } from "./fanAgents";
+import { execSync } from "child_process";
+import path from "path";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -353,6 +355,41 @@ async function seedProductionDatabase() {
   }
 
   await seedProductionDatabase();
+
+  // ─── Auto-fix radio track durations ──────────────────────────────────────────
+  // If any radio track has a null duration (common after fresh deploys), read
+  // the actual duration from the audio file using ffprobe and store it in the DB.
+  (async () => {
+    try {
+      const tracks = await db.select().from(radioTracks);
+      const nullTracks = tracks.filter(t => !t.duration || t.duration <= 0);
+      if (nullTracks.length === 0) return;
+
+      log(`Radio: fixing durations for ${nullTracks.length} track(s) with missing duration...`);
+      const radioDir = path.join(process.cwd(), 'client', 'public', 'media', 'radio');
+
+      for (const track of nullTracks) {
+        try {
+          const filename = track.audioUrl?.split('/').pop();
+          if (!filename) continue;
+          const filePath = path.join(radioDir, filename);
+          const out = execSync(
+            `ffprobe -v quiet -show_entries format=duration -of csv=p=0 "${filePath}"`,
+            { timeout: 5000 }
+          ).toString().trim();
+          const secs = Math.round(parseFloat(out));
+          if (secs > 0) {
+            await db.update(radioTracks).set({ duration: secs }).where(eq(radioTracks.id, track.id));
+            log(`Radio: set duration=${secs}s for "${track.title}"`);
+          }
+        } catch {
+          // ffprobe not available or file missing — skip silently
+        }
+      }
+    } catch (err: any) {
+      log(`Radio duration fix error: ${err.message}`);
+    }
+  })();
 
   // ─── Daily Auto-Scan Scheduler ─────────────────────────────────────────────
   async function scheduleDailyScan() {

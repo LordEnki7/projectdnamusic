@@ -80,6 +80,7 @@ function DNARadioPlayer() {
   const pingIntervalRef = useRef<number | null>(null);
   const connectedRef = useRef(false);
   const currentUrlRef = useRef('');
+  const currentSlotKeyRef = useRef(''); // tracks "songId-slotStart" to detect same-slot repeats
 
   const { refetch } = useQuery<NowPlayingData>({
     queryKey: ['/api/radio/now-playing'],
@@ -101,7 +102,6 @@ function DNARadioPlayer() {
     if (!connectedRef.current) return;
     setIsBuffering(true);
 
-    // Record when we started the fetch so we can correct for elapsed time
     const fetchStart = Date.now();
 
     let np: NowPlayingData | null = null;
@@ -125,14 +125,24 @@ function DNARadioPlayer() {
     setIsBumper(!isSongSlot);
     setNpData(np);
 
-    // How far into this slot we are (fetch round-trip is already elapsed)
-    const fetchElapsedSec = (Date.now() - fetchStart) / 1000;
-    // For MP3 songs: seek to the live clock position so all listeners are in sync.
-    // For WAV bumpers: always start from 0 — WAV requires full download to seek.
-    const targetSec = isSongSlot
-      ? Math.max(0, np.positionSeconds + fetchElapsedSec)
-      : 0;
-    const shouldSeek = isSongSlot && targetSec > 3;
+    if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
+
+    // Guard: if the server returns the same audio slot we're already playing and we're
+    // near the end of the audio file (within 5s), the audio duration is shorter than the
+    // slot duration. Don't restart — just wait for the slot to advance on the server clock.
+    const slotKey = audioUrl;
+    if (slotKey === currentSlotKeyRef.current && isSongSlot) {
+      const audioDur = audio.duration && isFinite(audio.duration) ? audio.duration : Infinity;
+      const nearEnd = audioDur - (audio.currentTime ?? 0) < 5;
+      if (nearEnd) {
+        const totalElapsedSec = (Date.now() - fetchStart) / 1000;
+        const waitMs = Math.max(np.secondsUntilNext - totalElapsedSec, 1) * 1000 + 500;
+        slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
+        setIsBuffering(false);
+        return;
+      }
+    }
+    currentSlotKeyRef.current = slotKey;
 
     const needsLoad = currentUrlRef.current !== audioUrl;
     if (needsLoad) {
@@ -143,20 +153,34 @@ function DNARadioPlayer() {
     }
     audio.volume = isMuted ? 0 : volume;
 
-    // Set seek target NOW (before canplay) so the browser starts buffering
-    // from the right byte offset rather than from the beginning of the file.
-    if (shouldSeek) {
-      audio.currentTime = targetSec;
-    } else if (!needsLoad) {
-      audio.currentTime = 0;
-    }
-
-    if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
-
     const startPlay = () => {
       if (!connectedRef.current) return;
-      positionRef.current = shouldSeek ? Math.floor(targetSec) : 0;
-      setLocalPosition(shouldSeek ? Math.floor(targetSec) : 0);
+
+      // Calculate how far into the slot we are now (fetch + buffer time elapsed)
+      const totalElapsedSec = (Date.now() - fetchStart) / 1000;
+
+      // For MP3 songs: seek to the live clock position so all listeners hear
+      // the same part of the song at the same time.
+      // Seek inside startPlay so the browser has loaded metadata (duration known).
+      // For WAV bumpers: always start from 0 — WAV requires full download to seek.
+      let seekTo = 0;
+      if (isSongSlot) {
+        const livePos = np!.positionSeconds + totalElapsedSec;
+        // Don't seek past the actual audio duration — clamp to 2s before the end
+        const audioDuration = audio.duration && isFinite(audio.duration) ? audio.duration : np!.slotDurationSeconds;
+        seekTo = Math.min(livePos, audioDuration - 2);
+        seekTo = Math.max(seekTo, 0);
+      }
+
+      if (seekTo > 2) {
+        audio.currentTime = seekTo;
+      } else {
+        audio.currentTime = 0;
+        seekTo = 0;
+      }
+
+      positionRef.current = Math.floor(seekTo);
+      setLocalPosition(Math.floor(seekTo));
 
       audio.play()
         .then(() => {
@@ -164,9 +188,10 @@ function DNARadioPlayer() {
           setIsBuffering(false);
           setConnected(true);
           clearStallTimer();
-          // Subtract all elapsed time (fetch + buffer) from the remaining slot time
-          const totalElapsedSec = (Date.now() - fetchStart) / 1000;
-          const remaining = Math.max(np!.secondsUntilNext - totalElapsedSec, 1);
+          // secondsUntilNext already accounts for where we are in the slot.
+          // Subtract total elapsed (fetch + seek + buffer) to stay on the clock.
+          const playStartElapsed = (Date.now() - fetchStart) / 1000;
+          const remaining = Math.max(np!.secondsUntilNext - playStartElapsed, 1);
           slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
         })
         .catch(err => {
@@ -178,6 +203,8 @@ function DNARadioPlayer() {
     if (!needsLoad && audio.readyState >= 3) {
       startPlay();
     } else {
+      // Wait for canplay — at that point the browser has parsed the audio metadata
+      // (duration is known) so seeking inside startPlay is safe.
       audio.addEventListener('canplay', startPlay, { once: true });
     }
   }, [refetch, volume, isMuted]);
