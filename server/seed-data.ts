@@ -150,12 +150,12 @@ export const radioTracksData = [
 
 // Station drop / bumper WAV tags — play between every 3 songs on DNA Radio & My Station
 export const radioBumpersData = [
-  { title: "Project DNA Radio Tag 1", audioUrl: "/media/bumpers/Project_DNA_Radio_tags1_01_1775661325882.mp3" },
-  { title: "Project DNA Radio Tag 2", audioUrl: "/media/bumpers/Project_DNA_Radio_tag2a_01_1775661325882.mp3" },
-  { title: "Project DNA Radio Tag 3", audioUrl: "/media/bumpers/Project_DNA_Radio_tags3_01_converted_by_soundandgo.com__1775661325882.mp3" },
-  { title: "Project DNA Radio Tag 4", audioUrl: "/media/bumpers/Project_DNA_Radio_tags4_01_converted_by_soundandgo.com__1775661325881.mp3" },
-  { title: "Project DNA Radio Tag 5", audioUrl: "/media/bumpers/Project_DNA_Radio_tags5_01_converted_by_soundandgo.com__1775661325881.mp3" },
-  { title: "Project DNA Radio Tag 6", audioUrl: "/media/bumpers/Project_DNA_Radio_tags6_01_converted_by_soundandgo.com__1775661325881.mp3" },
-  { title: "Project DNA Radio Tag 7", audioUrl: "/media/bumpers/Project_DNA_Radio_tags7_01_converted_by_soundandgo.com__1775661325880.mp3" },
-  { title: "Project DNA Radio Tag 8", audioUrl: "/media/bumpers/Project_DNA_Radio_tags8_01_converted_by_soundandgo.com__1775661325879.mp3" },
+  { title: "Project DNA Drop 1", audioUrl: "/media/bumpers/Project_DNA_drop_1_01_1775672689713.mp3" },
+  { title: "Project DNA Drop 2", audioUrl: "/media/bumpers/Project_DNA_drop_2_01_1775672689715.mp3" },
+  { title: "Project DNA Drop 3", audioUrl: "/media/bumpers/Project_DNA_drop_3_01_1775672689716.mp3" },
+  { title: "Project DNA Drop 4", audioUrl: "/media/bumpers/Project_DNA_drop_4_01_1775672689716.mp3" },
+  { title: "Project DNA Drop 5", audioUrl: "/media/bumpers/Project_DNA_drop_5_01_1775672689717.mp3" },
+  { title: "Project DNA Drop 6", audioUrl: "/media/bumpers/Project_DNA_drop_6_01_1775672689718.mp3" },
+  { title: "Project DNA Drop 7", audioUrl: "/media/bumpers/Project_DNA_drop_7_01_1775672689719.mp3" },
+  { title: "Project DNA Drop 8", audioUrl: "/media/bumpers/Project_DNA_drop_8_01_1775672689719.mp3" },
 ];
