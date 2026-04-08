@@ -105,7 +105,7 @@ function DNARadioPlayer() {
 
     // Prevent two syncs from running at the same time — the second one
     // would race against the first and corrupt the slot timer.
-    if (isSyncingRef.current) return;
+    if (isSyncingRef.current) { console.log('[RADIO] syncToStation blocked by lock'); return; }
     isSyncingRef.current = true;
 
     // Cancel any pending slot timer NOW (before the async fetch) so it
@@ -139,6 +139,8 @@ function DNARadioPlayer() {
     setIsBumper(!isSongSlot);
     setNpData(np);
 
+    if (!isSongSlot) console.log('[BUMPER] slot received:', audioUrl, '| remaining:', np.secondsUntilNext.toFixed(1)+'s');
+
     if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
 
     // Guard: same SONG slot returned again (audio shorter than DB duration) —
@@ -160,13 +162,16 @@ function DNARadioPlayer() {
     currentSlotKeyRef.current = slotKey;
 
     const needsLoad = currentUrlRef.current !== audioUrl;
+    if (!isSongSlot) console.log('[BUMPER] needsLoad:', needsLoad, '| readyState:', audio.readyState);
     if (needsLoad) {
       currentUrlRef.current = audioUrl;
       audio.src = audioUrl;
       audio.preload = 'auto';
       audio.load();
+      if (!isSongSlot) console.log('[BUMPER] audio.src set & load() called');
     }
     audio.volume = isMuted ? 0 : volume;
+    if (!isSongSlot) console.log('[BUMPER] volume set to:', audio.volume, '| isMuted:', isMuted);
 
     // If the audio never fires canplay within 8s (stalled / file missing),
     // skip this slot so the radio never freezes.
@@ -190,7 +195,7 @@ function DNARadioPlayer() {
       clearLoadGuard();
       audio.removeEventListener('canplay', startPlay);
       if (!connectedRef.current) return;
-      console.warn('Radio: audio error on', audioUrl, '— skipping slot');
+      console.warn('[BUMPER] audio ERROR on', audioUrl, 'code:', audio.error?.code, audio.error?.message);
       setIsBuffering(false);
       const elapsed = (Date.now() - fetchStart) / 1000;
       const remaining = Math.max(np!.secondsUntilNext - elapsed, 1);
@@ -202,6 +207,8 @@ function DNARadioPlayer() {
       clearLoadGuard();
       audio.removeEventListener('error', onAudioError);
       if (!connectedRef.current) return;
+
+      if (!isSongSlot) console.log('[BUMPER] canplay fired → startPlay() running, readyState:', audio.readyState);
 
       const totalElapsedSec = (Date.now() - fetchStart) / 1000;
 
@@ -219,8 +226,10 @@ function DNARadioPlayer() {
       positionRef.current = Math.floor(seekTo > 2 ? seekTo : 0);
       setLocalPosition(Math.floor(seekTo > 2 ? seekTo : 0));
 
+      if (!isSongSlot) console.log('[BUMPER] calling audio.play()…');
       audio.play()
         .then(() => {
+          if (!isSongSlot) console.log('[BUMPER] ✅ audio.play() resolved — bumper IS playing');
           setIsPlaying(true);
           setIsBuffering(false);
           setConnected(true);
@@ -230,7 +239,7 @@ function DNARadioPlayer() {
           slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
         })
         .catch(err => {
-          console.warn('Radio play failed:', err);
+          if (!isSongSlot) console.warn('[BUMPER] ❌ audio.play() REJECTED:', err);
           setIsBuffering(false);
           // Still advance — don't leave the radio frozen if autoplay is blocked.
           const playStartElapsed = (Date.now() - fetchStart) / 1000;
