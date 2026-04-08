@@ -1,5 +1,8 @@
 import type { Express } from "express";
 import fs from "fs";
+import path from "path";
+import multer from "multer";
+import { execFileSync } from "child_process";
 import { FAN_CONTACTS } from "./fanContacts";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -1347,6 +1350,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.delete(radioTracks).where(eq(radioTracks.id, parseInt(req.params.id)));
       res.json({ success: true });
     } catch { res.status(500).json({ error: "Failed to delete track" }); }
+  });
+
+  // MP3 upload for DNA Radio tracks
+  // Files are saved to client/public/media/radio/ so they're served as /media/radio/filename.mp3
+  const radioUploadDir = path.join(process.cwd(), "client", "public", "media", "radio");
+  if (!fs.existsSync(radioUploadDir)) fs.mkdirSync(radioUploadDir, { recursive: true });
+
+  const radioUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, radioUploadDir),
+      filename: (_req, file, cb) => {
+        const safe = file.originalname.replace(/[^a-zA-Z0-9._\-& ]/g, "_");
+        const unique = `${Date.now()}_${safe}`;
+        cb(null, unique);
+      },
+    }),
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === "audio/mpeg" || file.originalname.toLowerCase().endsWith(".mp3")) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only MP3 files allowed"));
+      }
+    },
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB max
+  });
+
+  app.post("/api/admin/radio/upload-mp3", radioUpload.single("file"), async (req: any, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: "Unauthorized" });
+    const user = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user[0]?.isAdmin) return res.status(403).json({ error: "Forbidden" });
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    const audioUrl = `/media/radio/${req.file.filename}`;
+
+    // Auto-detect duration via ffprobe
+    let duration = 0;
+    try {
+      const out = execFileSync("ffprobe", [
+        "-v", "quiet", "-show_entries", "format=duration",
+        "-of", "csv=p=0", req.file.path,
+      ], { timeout: 10000 }).toString().trim();
+      duration = Math.round(parseFloat(out));
+    } catch { /* ffprobe unavailable — admin can set manually */ }
+
+    // Auto-derive title from filename (strip timestamp prefix + extension)
+    const rawName = req.file.originalname.replace(/\.mp3$/i, "");
+    const title = rawName.replace(/^[\d_-]+/, "").trim() || rawName;
+
+    res.json({ audioUrl, duration, title, filename: req.file.filename });
+  });
+
+  // Serve uploaded radio MP3s in production (Vite handles this in dev via client/public)
+  app.use("/media/radio", (req, res, next) => {
+    const file = path.join(radioUploadDir, path.basename(req.path));
+    if (fs.existsSync(file)) {
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      fs.createReadStream(file).pipe(res);
+    } else {
+      next();
+    }
   });
 
   // Bumper management

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users, Mic2, Send, Link2, Crown } from "lucide-react";
+import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users, Mic2, Send, Link2, Crown, Upload } from "lucide-react";
 import AdminAgentHub from "@/components/AdminAgentHub";
 import FanPipeline from "@/components/FanPipeline";
 import { Link, useLocation } from "wouter";
@@ -1070,6 +1070,42 @@ export default function AdminDashboard() {
   const [newTrackArtist, setNewTrackArtist] = useState('');
   const [newTrackUrl, setNewTrackUrl] = useState('');
   const [newTrackDuration, setNewTrackDuration] = useState('');
+  const [mp3Uploading, setMp3Uploading] = useState(false);
+  const [mp3UploadProgress, setMp3UploadProgress] = useState<string | null>(null);
+  const radioFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleMp3Upload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setMp3Uploading(true);
+    let added = 0;
+    for (const file of Array.from(files)) {
+      setMp3UploadProgress(`Uploading ${file.name}...`);
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/admin/radio/upload-mp3', { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        // Auto-add to rotation immediately
+        await apiRequest('POST', '/api/admin/radio/tracks', {
+          title: data.title || file.name.replace(/\.mp3$/i, ''),
+          artist: 'Shakim & Project DNA',
+          audioUrl: data.audioUrl,
+          duration: data.duration || 0,
+        });
+        added++;
+      } catch (e: any) {
+        toast({ title: `Failed: ${file.name}`, description: e.message, variant: 'destructive' });
+      }
+    }
+    setMp3Uploading(false);
+    setMp3UploadProgress(null);
+    if (added > 0) {
+      queryClient.invalidateQueries({ queryKey: ['/api/radio/tracks'] });
+      toast({ title: `${added} MP3${added > 1 ? 's' : ''} added to DNA Radio` });
+    }
+  };
+
   const addTrackMutation = useMutation({
     mutationFn: (d: {title: string, artist: string, audioUrl: string, duration: number}) => apiRequest('POST', '/api/admin/radio/tracks', d),
     onSuccess: () => {
@@ -2156,10 +2192,46 @@ export default function AdminDashboard() {
                 </Badge>
               </CardTitle>
               <CardDescription>
-                MP3 tracks that play in the DNA Radio rotation. Add a public URL or a path like <code className="text-cyan-400">/media/radio/yourfile.mp3</code> for files you upload to the server.
+                Upload MP3 files directly or paste a public URL. Files are added to the live rotation immediately.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Hidden file input — supports multiple MP3s */}
+              <input
+                ref={radioFileInputRef}
+                type="file"
+                accept=".mp3,audio/mpeg"
+                multiple
+                className="hidden"
+                data-testid="input-radio-mp3-file"
+                onChange={e => handleMp3Upload(e.target.files)}
+              />
+              {/* Upload drop zone */}
+              <div
+                className="border-2 border-dashed border-cyan-500/40 rounded-lg p-6 text-center cursor-pointer hover-elevate transition-colors"
+                onClick={() => radioFileInputRef.current?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); handleMp3Upload(e.dataTransfer.files); }}
+                data-testid="dropzone-radio-mp3"
+              >
+                {mp3Uploading ? (
+                  <div className="space-y-2">
+                    <div className="w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="text-sm text-cyan-400">{mp3UploadProgress}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Upload className="w-6 h-6 text-cyan-500 mx-auto" />
+                    <p className="text-sm font-medium text-slate-300">Click or drag MP3 files here</p>
+                    <p className="text-xs text-slate-500">Multiple files supported &bull; Max 50 MB each &bull; Added to rotation instantly</p>
+                  </div>
+                )}
+              </div>
+              <div className="relative flex items-center">
+                <div className="flex-1 border-t border-slate-700" />
+                <span className="px-3 text-xs text-slate-500">or add by URL</span>
+                <div className="flex-1 border-t border-slate-700" />
+              </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Input placeholder="Track title (e.g. Champions)" value={newTrackTitle}
                   onChange={e => setNewTrackTitle(e.target.value)} data-testid="input-track-title" />
