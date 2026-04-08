@@ -71,6 +71,7 @@ function DNARadioPlayer() {
   const [connected, setConnected] = useState(false);
   const [localPosition, setLocalPosition] = useState(0);
   const [isBumper, setIsBumper] = useState(false);
+  const isBumperRef = useRef(false); // always-current mirror so closures never read stale state
   const [npData, setNpData] = useState<NowPlayingData | null>(null);
   const [listenerCount, setListenerCount] = useState<number | null>(null);
   const positionRef = useRef(0);
@@ -122,6 +123,7 @@ function DNARadioPlayer() {
     const audioUrl = isSongSlot ? np.song?.audioUrl : np.bumper?.audioUrl;
     if (!audioUrl) { setIsBuffering(false); return; }
 
+    isBumperRef.current = !isSongSlot;
     setIsBumper(!isSongSlot);
     setNpData(np);
 
@@ -239,11 +241,11 @@ function DNARadioPlayer() {
     // For songs, sync immediately on end.
     // For bumpers, the slot timer already handles the transition — don't re-sync
     // or we'd try to replay the same bumper before the server slot expires.
+    // Use isBumperRef (not isBumper state) to avoid stale closure reads.
     const onEnded = () => {
       if (!connectedRef.current) return;
-      if (isBumper) {
-        // Bumper ended naturally — just wait for the slot timer (set in syncToStation)
-        // which will fire when the server slot boundary passes.
+      if (isBumperRef.current) {
+        // Bumper ended naturally — wait for the slot timer to advance to the next song.
         return;
       }
       syncToStation();
