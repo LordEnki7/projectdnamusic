@@ -317,7 +317,7 @@ function DNARadioPlayer() {
     }
   };
 
-  const slotDuration = npData?.slotDurationSeconds || song?.duration || 240;
+  const slotDuration = npData?.slotDurationSeconds || song?.duration || 0;
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-purple-500/30 bg-black/60 backdrop-blur-xl">
@@ -377,12 +377,12 @@ function DNARadioPlayer() {
 
             <div className="mt-6">
               <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mb-2">
-                <span>{formatTime(localPosition)}</span>
+                <span>{slotDuration > 0 ? formatTime(localPosition) : '--:--'}</span>
                 <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full transition-all duration-1000"
-                    style={{ width: `${Math.min((localPosition / slotDuration) * 100, 100)}%` }} />
+                    style={{ width: slotDuration > 0 ? `${Math.min((localPosition / slotDuration) * 100, 100)}%` : '0%' }} />
                 </div>
-                <span>{formatTime(slotDuration)}</span>
+                <span>{slotDuration > 0 ? formatTime(slotDuration) : '--:--'}</span>
               </div>
               <WaveformBars playing={isPlaying} />
             </div>

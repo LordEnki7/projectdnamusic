@@ -121,3 +121,26 @@ export const membershipTiersData = [
     createdAt: new Date().toISOString(),
   },
 ];
+
+// DNA Radio rotation — 18 MP3 tracks served from /media/radio/
+// These are seeded on fresh deployments so the radio works immediately without admin setup.
+export const radioTracksData = [
+  { position: 1,  title: "C U When U C Me",       artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_C_U_When_U_C_Me_1775487563225.mp3",        duration: 185 },
+  { position: 2,  title: "Champions",              artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Champions_1775487563228.mp3",              duration: 203 },
+  { position: 3,  title: "Do You Feel It",         artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Do_You_Feel_It_1775487563228.mp3",         duration: 188 },
+  { position: 4,  title: "End of The Day",         artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_End_of_The_Day_1775487563228.mp3",         duration: 196 },
+  { position: 5,  title: "Freedom",                artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Freedom_1775487563229.mp3",                duration: 221 },
+  { position: 6,  title: "Home",                   artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Home_1775487563229.mp3",                   duration: 255 },
+  { position: 7,  title: "HUSH",                   artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_HUSH_1775487563230.mp3",                   duration: 234 },
+  { position: 8,  title: "I Forgive You",          artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_I_forgive_You_1775487563230.mp3",          duration: 240 },
+  { position: 9,  title: "Jac N A Box",            artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Jac_N_A_Box_1775487563230.mp3",            duration: 207 },
+  { position: 10, title: "Leaders",                artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Leaders_1775487563231.mp3",                duration: 197 },
+  { position: 11, title: "Look Within",            artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Look_Within_1775487563231.mp3",            duration: 212 },
+  { position: 12, title: "Mary Jane",              artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Mary_Jane_1775487563231.mp3",              duration: 194 },
+  { position: 13, title: "Move Forward",           artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Move_Forward_1775487563232.mp3",           duration: 221 },
+  { position: 14, title: "Never See You Again",    artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Never_See_You_Again_1775487563232.mp3",    duration: 222 },
+  { position: 15, title: "No Bad Energy",          artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_No_bad_Energy_1775487563232.mp3",          duration: 211 },
+  { position: 16, title: "No Power",               artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_No_Power_1775487563233.mp3",               duration: 233 },
+  { position: 17, title: "Nobody But Me",          artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Nobody_But_Me_1775487563233.mp3",          duration: 186 },
+  { position: 18, title: "Poker",                  artist: "Shakim & Project DNA", audioUrl: "/media/radio/Shakim_&_Project_DNA_-_Poker_1775487563233.mp3",                  duration: 285 },
+];

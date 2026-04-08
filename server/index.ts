@@ -6,7 +6,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { ensureLocalStorageExists } from "./mediaStorage";
 import { db } from "./db";
 import { songs, merchandise, beats, membershipTiers, users, agentJobs, radioTracks } from "@shared/schema";
-import { allSongsData, merchandiseData, beatsData, membershipTiersData } from "./seed-data";
+import { allSongsData, merchandiseData, beatsData, membershipTiersData, radioTracksData } from "./seed-data";
 import { eq, isNull, sql as drizzleSql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { runAdvisorScanJob } from "./aiAgents";
@@ -332,6 +332,31 @@ async function seedProductionDatabase() {
     } catch (error) {
       log(`Error checking/seeding production database: ${error}`);
     }
+  }
+
+  // ── Always ensure DNA Radio tracks are seeded (dev + prod) ──────────────────
+  // This runs regardless of NODE_ENV so fresh databases (including production
+  // Dokploy instances) start with the correct 18-track rotation immediately.
+  try {
+    const existingTracks = await db.select().from(radioTracks);
+    if (existingTracks.length === 0) {
+      log("Radio: seeding 18 default tracks...");
+      for (const track of radioTracksData) {
+        await db.insert(radioTracks).values({
+          title: track.title,
+          artist: track.artist,
+          audioUrl: track.audioUrl,
+          duration: track.duration,
+          isActive: 1,
+          position: track.position,
+        });
+      }
+      log(`Radio: ✓ seeded ${radioTracksData.length} tracks into rotation`);
+    } else {
+      log(`Radio: ${existingTracks.length} track(s) already in DB — skipping seed`);
+    }
+  } catch (err: any) {
+    log(`Radio seed error: ${err.message}`);
   }
 }
 
