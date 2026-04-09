@@ -63,8 +63,7 @@ function formatTime(seconds: number) {
 }
 
 function DNARadioPlayer() {
-  const audioRef = useRef<HTMLAudioElement>(null);       // songs
-  const bumperAudioRef = useRef<HTMLAudioElement>(null); // drops — separate element, no state conflicts
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -72,7 +71,7 @@ function DNARadioPlayer() {
   const [connected, setConnected] = useState(false);
   const [localPosition, setLocalPosition] = useState(0);
   const [isBumper, setIsBumper] = useState(false);
-  const isBumperRef = useRef(false);
+  const isBumperRef = useRef(false); // always-current mirror so closures never read stale state
   const [npData, setNpData] = useState<NowPlayingData | null>(null);
   const [listenerCount, setListenerCount] = useState<number | null>(null);
   const positionRef = useRef(0);
@@ -82,8 +81,8 @@ function DNARadioPlayer() {
   const pingIntervalRef = useRef<number | null>(null);
   const connectedRef = useRef(false);
   const currentUrlRef = useRef('');
-  const currentSlotKeyRef = useRef('');
-  const isSyncingRef = useRef(false);
+  const currentSlotKeyRef = useRef(''); // tracks "songId-slotStart" to detect same-slot repeats
+  const isSyncingRef = useRef(false); // prevents concurrent syncToStation() calls
 
   const { refetch } = useQuery<NowPlayingData>({
     queryKey: ['/api/radio/now-playing'],
@@ -103,8 +102,14 @@ function DNARadioPlayer() {
 
   const syncToStation = useCallback(async () => {
     if (!connectedRef.current) return;
+
+    // Prevent two syncs from running at the same time — the second one
+    // would race against the first and corrupt the slot timer.
     if (isSyncingRef.current) return;
     isSyncingRef.current = true;
+
+    // Cancel any pending slot timer NOW (before the async fetch) so it
+    // cannot fire and spawn another concurrent syncToStation while we wait.
     if (slotTimerRef.current) { clearTimeout(slotTimerRef.current); slotTimerRef.current = null; }
 
     setIsBuffering(true);
@@ -125,6 +130,7 @@ function DNARadioPlayer() {
       return;
     }
 
+    const audio = audioRef.current;
     const isSongSlot = np.type === 'song';
     const audioUrl = isSongSlot ? np.song?.audioUrl : np.bumper?.audioUrl;
     if (!audioUrl) { setIsBuffering(false); return; }
@@ -135,79 +141,23 @@ function DNARadioPlayer() {
 
     if (slotTimerRef.current) clearTimeout(slotTimerRef.current);
 
-    // ── BUMPER SLOT: use the dedicated bumper audio element ──────────────────
-    if (!isSongSlot) {
-      const ba = bumperAudioRef.current;
-      if (!ba) { setIsBuffering(false); return; }
-
-      // Pause the main song element but leave its src intact for when we come back
-      audioRef.current.pause();
-
-      ba.src = audioUrl;
-      ba.volume = isMuted ? 0 : volume;
-      ba.currentTime = 0;
-      ba.load();
-
-      let bumperGuard: ReturnType<typeof setTimeout> | null = window.setTimeout(() => {
-        bumperGuard = null;
-        ba.removeEventListener('canplay', onBumperCanPlay);
-        ba.removeEventListener('error', onBumperError);
-        if (!connectedRef.current) return;
-        console.warn('Radio: bumper load timeout — skipping slot');
+    // Guard: same SONG slot returned again (audio shorter than DB duration) —
+    // don't restart it, just wait for the slot boundary to pass on the server clock.
+    // Bumpers don't need this guard — the stale-closure fix and concurrency lock
+    // already prevent double-play, and bumpers must always play fresh from position 0.
+    const slotKey = audioUrl;
+    if (slotKey === currentSlotKeyRef.current && isSongSlot) {
+      const audioDur = audio.duration && isFinite(audio.duration) ? audio.duration : Infinity;
+      const nearEnd = audioDur - (audio.currentTime ?? 0) < 5;
+      if (nearEnd) {
+        const totalElapsedSec = (Date.now() - fetchStart) / 1000;
+        const waitMs = Math.max(np.secondsUntilNext - totalElapsedSec, 1) * 1000 + 500;
+        slotTimerRef.current = window.setTimeout(() => syncToStation(), waitMs);
         setIsBuffering(false);
-        slotTimerRef.current = window.setTimeout(() => syncToStation(), 300);
-      }, 8000);
-
-      const clearBumperGuard = () => { if (bumperGuard) { clearTimeout(bumperGuard); bumperGuard = null; } };
-
-      const onBumperError = () => {
-        clearBumperGuard();
-        ba.removeEventListener('canplay', onBumperCanPlay);
-        if (!connectedRef.current) return;
-        console.warn('Radio: bumper audio error on', audioUrl);
-        setIsBuffering(false);
-        slotTimerRef.current = window.setTimeout(() => syncToStation(), 300);
-      };
-
-      const onBumperCanPlay = () => {
-        clearBumperGuard();
-        ba.removeEventListener('error', onBumperError);
-        if (!connectedRef.current) return;
-        ba.play()
-          .then(() => {
-            setIsPlaying(true);
-            setIsBuffering(false);
-            setConnected(true);
-            const elapsed1 = (Date.now() - fetchStart) / 1000;
-            const remaining = Math.max(np!.secondsUntilNext - elapsed1, 1);
-            slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
-          })
-          .catch(() => {
-            setIsBuffering(false);
-            const elapsed1 = (Date.now() - fetchStart) / 1000;
-            const remaining = Math.max(np!.secondsUntilNext - elapsed1, 1);
-            slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
-          });
-      };
-
-      ba.addEventListener('error', onBumperError, { once: true });
-      ba.addEventListener('canplay', onBumperCanPlay, { once: true });
-
-      // If already buffered enough, skip the event wait and play immediately
-      if (ba.readyState >= 3) {
-        ba.removeEventListener('canplay', onBumperCanPlay);
-        onBumperCanPlay();
+        return;
       }
-      return;
     }
-
-    // ── SONG SLOT: use the main audio element ────────────────────────────────
-    // Stop any bumper that's still playing
-    const ba = bumperAudioRef.current;
-    if (ba) { ba.pause(); ba.src = ''; }
-
-    const audio = audioRef.current;
-    currentSlotKeyRef.current = audioUrl;
+    currentSlotKeyRef.current = slotKey;
 
     const needsLoad = currentUrlRef.current !== audioUrl;
     if (needsLoad) {
@@ -218,24 +168,33 @@ function DNARadioPlayer() {
     }
     audio.volume = isMuted ? 0 : volume;
 
+    // If the audio never fires canplay within 8s (stalled / file missing),
+    // skip this slot so the radio never freezes.
     let loadGuard: ReturnType<typeof setTimeout> | null = window.setTimeout(() => {
       loadGuard = null;
       audio.removeEventListener('canplay', startPlay);
       audio.removeEventListener('error', onAudioError);
       if (!connectedRef.current) return;
-      console.warn('Radio: song load timeout — skipping slot');
+      console.warn('Radio: load timeout on', audioUrl, '— skipping slot');
       setIsBuffering(false);
-      slotTimerRef.current = window.setTimeout(() => syncToStation(), 300);
+      const elapsed = (Date.now() - fetchStart) / 1000;
+      const remaining = Math.max(np!.secondsUntilNext - elapsed, 1);
+      slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
     }, 8000);
 
-    const clearLoadGuard = () => { if (loadGuard) { clearTimeout(loadGuard); loadGuard = null; } };
+    const clearLoadGuard = () => {
+      if (loadGuard) { clearTimeout(loadGuard); loadGuard = null; }
+    };
 
     const onAudioError = () => {
       clearLoadGuard();
       audio.removeEventListener('canplay', startPlay);
       if (!connectedRef.current) return;
+      console.warn('Radio: audio error on', audioUrl, '— skipping slot');
       setIsBuffering(false);
-      slotTimerRef.current = window.setTimeout(() => syncToStation(), 300);
+      const elapsed = (Date.now() - fetchStart) / 1000;
+      const remaining = Math.max(np!.secondsUntilNext - elapsed, 1);
+      slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
     };
     audio.addEventListener('error', onAudioError, { once: true });
 
@@ -245,9 +204,16 @@ function DNARadioPlayer() {
       if (!connectedRef.current) return;
 
       const totalElapsedSec = (Date.now() - fetchStart) / 1000;
-      const livePos = np!.positionSeconds + totalElapsedSec;
-      const audioDuration = audio.duration && isFinite(audio.duration) ? audio.duration : np!.slotDurationSeconds;
-      const seekTo = Math.max(0, Math.min(livePos, audioDuration - 2));
+
+      // MP3 songs: seek to the live position so all listeners are in sync.
+      // Bumper drops: always play from 0 (they're short — no seeking needed).
+      let seekTo = 0;
+      if (isSongSlot) {
+        const livePos = np!.positionSeconds + totalElapsedSec;
+        const audioDuration = audio.duration && isFinite(audio.duration) ? audio.duration : np!.slotDurationSeconds;
+        seekTo = Math.min(livePos, audioDuration - 2);
+        seekTo = Math.max(seekTo, 0);
+      }
 
       audio.currentTime = seekTo > 2 ? seekTo : 0;
       positionRef.current = Math.floor(seekTo > 2 ? seekTo : 0);
@@ -263,8 +229,10 @@ function DNARadioPlayer() {
           const remaining = Math.max(np!.secondsUntilNext - playStartElapsed, 1);
           slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
         })
-        .catch(() => {
+        .catch(err => {
+          console.warn('Radio play failed:', err);
           setIsBuffering(false);
+          // Still advance — don't leave the radio frozen if autoplay is blocked.
           const playStartElapsed = (Date.now() - fetchStart) / 1000;
           const remaining = Math.max(np!.secondsUntilNext - playStartElapsed, 1);
           slotTimerRef.current = window.setTimeout(() => syncToStation(), remaining * 1000 + 300);
@@ -335,9 +303,7 @@ function DNARadioPlayer() {
   }, [syncToStation]);
 
   useEffect(() => {
-    const v = isMuted ? 0 : volume;
-    if (audioRef.current) audioRef.current.volume = v;
-    if (bumperAudioRef.current) bumperAudioRef.current.volume = v;
+    if (audioRef.current) audioRef.current.volume = isMuted ? 0 : volume;
   }, [volume, isMuted]);
 
   useEffect(() => {
@@ -376,7 +342,6 @@ function DNARadioPlayer() {
     if (connectedRef.current) {
       connectedRef.current = false;
       audioRef.current?.pause();
-      if (bumperAudioRef.current) { bumperAudioRef.current.pause(); bumperAudioRef.current.src = ''; }
       setIsPlaying(false);
       setIsBuffering(false);
       setConnected(false);
@@ -487,7 +452,6 @@ function DNARadioPlayer() {
         </div>
       </div>
       <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
-      <audio ref={bumperAudioRef} preload="none" />
     </div>
   );
 }
