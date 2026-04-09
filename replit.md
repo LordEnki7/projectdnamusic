@@ -63,6 +63,28 @@ A two-layer radio system:
 
 The design adopts a futuristic, sci-fi aesthetic with cosmic energy, DNA strands, and sacred geometry motifs. The color palette utilizes Deep Space backgrounds with Cosmic Purple/Electric Cyan accents, and Orbitron/Inter typography. Branding includes a 3D glassy bevel logo effect, with animated video elements enhancing interactivity and visual engagement.
 
+## Known Issues & Hard-Won Fixes
+
+### DNA Radio — Bumper (Drop) Audio
+
+**DO NOT redesign the bumper playback system.** It took a long time to get right. The current approach uses a single `<audio>` element (`audioRef`) for both songs and bumpers inside `DNARadioPlayer` in `client/src/pages/Radio.tsx`.
+
+**How it works:**
+- Server returns `type: 'song'` or `type: 'bumper'` from `/api/radio/now-playing`
+- `syncToStation()` handles both through the same audio element
+- For bumpers: resets the element first (`audio.src = ''` → `audio.load()`) to exit the browser's "ended" state, then loads the bumper URL from position 0
+- A slot timer advances to the next song when the server slot expires
+
+**The bugs that were fixed (do not reintroduce):**
+1. **Stale closure** — `isBumperRef` (a ref, not state) must be used inside `onEnded` to check whether a bumper is playing. Using state causes stale closure reads.
+2. **Race condition** — `isSyncingRef` lock prevents two `syncToStation()` calls running concurrently. Slot timer is cleared BEFORE the async fetch, not after.
+3. **`canplay` not firing** — After a song ends, the browser won't reliably fire `canplay` on the same element when a new src is set. Fix: do `audio.src = ''` then `audio.load()` first to fully reset it before loading the bumper.
+4. **Error handler double-trigger** — Setting `audio.src = ''` fires an `error` event. The `onError` handler MUST check `isBumperRef.current` and return early, otherwise it schedules another `syncToStation()` that loads a song on top of the bumper 2 seconds later.
+
+**Policy: if bumpers are working, only touch the specific thing that is broken. Do not refactor the audio architecture.**
+
+**Bumper files** are in `client/public/media/bumpers/` as `Project_DNA_drop_1` through `Project_DNA_drop_8`. The DB seed auto-corrects any old filenames on server startup.
+
 ## External Dependencies
 
 *   **Payment Processing**: Stripe for checkout, donations, and recurring subscriptions, utilizing webhooks for order and subscription management.
