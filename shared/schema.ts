@@ -858,6 +858,7 @@ export const radioBumpers = pgTable("radio_bumpers", {
   title: text("title").notNull(),
   audioUrl: text("audio_url").notNull(),
   isActive: integer("is_active").default(1),
+  duration: integer("duration"),
   createdAt: text("created_at").notNull().default(sql`now()`),
 });
 

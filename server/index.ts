@@ -369,6 +369,7 @@ async function seedProductionDatabase() {
           title: bumper.title,
           audioUrl: bumper.audioUrl,
           isActive: 1,
+          duration: bumper.duration ?? null,
         });
       }
       log(`Radio: ✓ seeded ${radioBumpersData.length} bumpers`);
@@ -399,8 +400,17 @@ async function seedProductionDatabase() {
       const existingUrls = new Set(existingBumpers.map(b => b.audioUrl));
       for (const seedBumper of radioBumpersData) {
         if (!existingUrls.has(seedBumper.audioUrl)) {
-          await db.insert(radioBumpers).values({ title: seedBumper.title, audioUrl: seedBumper.audioUrl, isActive: 1 });
+          await db.insert(radioBumpers).values({ title: seedBumper.title, audioUrl: seedBumper.audioUrl, isActive: 1, duration: seedBumper.duration ?? null });
           log(`Radio: added new bumper "${seedBumper.title}"`);
+        }
+      }
+      // Back-fill duration for any existing bumpers that are missing it but seed data knows it
+      const afterInsert = await db.select().from(radioBumpers);
+      for (const dbBumper of afterInsert) {
+        const seed = radioBumpersData.find(s => s.audioUrl === dbBumper.audioUrl);
+        if (seed?.duration && !dbBumper.duration) {
+          await db.update(radioBumpers).set({ duration: seed.duration }).where(eq(radioBumpers.id, dbBumper.id));
+          log(`Radio: set duration=${seed.duration}s for bumper "${dbBumper.title}"`);
         }
       }
       const finalCount = await db.select().from(radioBumpers);

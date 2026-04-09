@@ -1238,7 +1238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (trackList.length === 0) return res.json({ song: null });
 
       const activeBumpers = await db.select().from(radioBumpers).where(eq(radioBumpers.isActive, 1));
-      const BUMPER_SLOT = 12; // tags are 5-10 s; 12 s gives headroom for loading
+      const DEFAULT_BUMPER_SLOT = 12; // short drops: 5-10 s; 12 s gives headroom for loading
       const SONGS_BETWEEN_BUMPERS = 1;
 
       // Build rotation: track, track, track, bumper, ...
@@ -1254,7 +1254,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         slots.push({ type: 'song', song: t, slotDuration: t.duration || 240 });
         if ((i + 1) % SONGS_BETWEEN_BUMPERS === 0 && activeBumpers.length > 0) {
           const bumper = activeBumpers[bumperIdx % activeBumpers.length];
-          slots.push({ type: 'bumper', bumper, slotDuration: BUMPER_SLOT });
+          // Use per-bumper duration if stored, otherwise fall back to default
+          const bumperSlotDuration = bumper.duration ? bumper.duration + 3 : DEFAULT_BUMPER_SLOT;
+          slots.push({ type: 'bumper', bumper, slotDuration: bumperSlotDuration });
           bumperIdx++;
         }
       });

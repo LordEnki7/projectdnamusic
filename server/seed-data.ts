@@ -150,13 +150,13 @@ export const radioTracksData = [
 
 // Station drop / bumper WAV tags — play between every 3 songs on DNA Radio & My Station
 export const radioBumpersData = [
-  { title: "Project DNA Drop 1", audioUrl: "/media/bumpers/Project_DNA_drop_1_01_1775672689713.mp3" },
-  { title: "Project DNA Drop 2", audioUrl: "/media/bumpers/Project_DNA_drop_2_01_1775672689715.mp3" },
-  { title: "Project DNA Drop 3", audioUrl: "/media/bumpers/Project_DNA_drop_3_01_1775672689716.mp3" },
-  { title: "Project DNA Drop 4", audioUrl: "/media/bumpers/Project_DNA_drop_4_01_1775672689716.mp3" },
-  { title: "Project DNA Drop 5", audioUrl: "/media/bumpers/Project_DNA_drop_5_01_1775672689717.mp3" },
-  { title: "Project DNA Drop 6", audioUrl: "/media/bumpers/Project_DNA_drop_6_01_1775672689718.mp3" },
-  { title: "Project DNA Drop 7", audioUrl: "/media/bumpers/Project_DNA_drop_7_01_1775672689719.mp3" },
-  { title: "Project DNA Drop 8", audioUrl: "/media/bumpers/Project_DNA_drop_8_01_1775672689719.mp3" },
-  { title: "The Clarity Code Commercial", audioUrl: "/media/bumpers/THE_CLARITY_CODE_COMMERCIAL_RADIO_04092026_1775746397347.mp3" },
+  { title: "Project DNA Drop 1", audioUrl: "/media/bumpers/Project_DNA_drop_1_01_1775672689713.mp3", duration: null },
+  { title: "Project DNA Drop 2", audioUrl: "/media/bumpers/Project_DNA_drop_2_01_1775672689715.mp3", duration: null },
+  { title: "Project DNA Drop 3", audioUrl: "/media/bumpers/Project_DNA_drop_3_01_1775672689716.mp3", duration: null },
+  { title: "Project DNA Drop 4", audioUrl: "/media/bumpers/Project_DNA_drop_4_01_1775672689716.mp3", duration: null },
+  { title: "Project DNA Drop 5", audioUrl: "/media/bumpers/Project_DNA_drop_5_01_1775672689717.mp3", duration: null },
+  { title: "Project DNA Drop 6", audioUrl: "/media/bumpers/Project_DNA_drop_6_01_1775672689718.mp3", duration: null },
+  { title: "Project DNA Drop 7", audioUrl: "/media/bumpers/Project_DNA_drop_7_01_1775672689719.mp3", duration: null },
+  { title: "Project DNA Drop 8", audioUrl: "/media/bumpers/Project_DNA_drop_8_01_1775672689719.mp3", duration: null },
+  { title: "The Clarity Code Commercial", audioUrl: "/media/bumpers/THE_CLARITY_CODE_COMMERCIAL_RADIO_04092026_1775746397347.mp3", duration: 122 },
 ];
