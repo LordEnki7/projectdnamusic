@@ -373,24 +373,29 @@ async function seedProductionDatabase() {
       }
       log(`Radio: ✓ seeded ${radioBumpersData.length} bumpers`);
     } else {
-      // Fix any bumpers still pointing to /attached_assets/ (wrong path)
-      const brokenBumpers = existingBumpers.filter(b =>
-        b.audioUrl?.startsWith('/attached_assets/') || b.audioUrl?.endsWith('.wav')
-      );
-      for (const bumper of brokenBumpers) {
-        let fixedUrl = bumper.audioUrl!;
+      // Fix any bumpers pointing to old/broken URLs
+      const validUrls = new Set(radioBumpersData.map(b => b.audioUrl));
+      for (let i = 0; i < existingBumpers.length; i++) {
+        const bumper = existingBumpers[i];
+        let fixedUrl = bumper.audioUrl ?? '';
+        // Old attached_assets path
         if (fixedUrl.startsWith('/attached_assets/')) {
           fixedUrl = `/media/bumpers/${fixedUrl.split('/').pop()!}`;
         }
+        // Old .wav extension
         if (fixedUrl.endsWith('.wav')) {
           fixedUrl = fixedUrl.replace('.wav', '.mp3');
         }
-        await db.update(radioBumpers).set({ audioUrl: fixedUrl }).where(eq(radioBumpers.id, bumper.id));
-        log(`Radio: fixed bumper URL id=${bumper.id} → ${fixedUrl}`);
+        // Old _tags naming convention or any URL not in current seed list
+        if (!validUrls.has(fixedUrl) && radioBumpersData[i]) {
+          fixedUrl = radioBumpersData[i].audioUrl;
+        }
+        if (fixedUrl !== bumper.audioUrl) {
+          await db.update(radioBumpers).set({ audioUrl: fixedUrl }).where(eq(radioBumpers.id, bumper.id));
+          log(`Radio: fixed bumper URL id=${bumper.id} → ${fixedUrl}`);
+        }
       }
-      if (brokenBumpers.length === 0) {
-        log(`Radio: ${existingBumpers.length} bumper(s) already in DB — skipping seed`);
-      }
+      log(`Radio: ${existingBumpers.length} bumper(s) already in DB — URLs verified`);
     }
   } catch (err: any) {
     log(`Radio bumper seed error: ${err.message}`);
