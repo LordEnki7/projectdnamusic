@@ -160,8 +160,15 @@ function DNARadioPlayer() {
     currentSlotKeyRef.current = slotKey;
 
     const needsLoad = currentUrlRef.current !== audioUrl;
-    if (needsLoad) {
+    if (needsLoad || !isSongSlot) {
       currentUrlRef.current = audioUrl;
+      // Bumpers: fully reset element first so browser exits "ended" state
+      // and reliably fires canplay on the new src
+      if (!isSongSlot) {
+        audio.pause();
+        audio.src = '';
+        audio.load();
+      }
       audio.src = audioUrl;
       audio.preload = 'auto';
       audio.load();
