@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Mail, Package, Calendar, User, MessageSquare, DollarSign, RefreshCw, Edit, Trash2, CheckCircle, XCircle, Star, Heart, Music, Radio, ShoppingBag, Plus, Image, Video, Bot, Users, Mic2, Send, Link2, Crown, Upload } from "lucide-react";
 import AdminAgentHub from "@/components/AdminAgentHub";
+import RadioOutreachAgent from "@/components/RadioOutreachAgent";
 import FanPipeline from "@/components/FanPipeline";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -1366,6 +1367,10 @@ export default function AdminDashboard() {
               <Bot className="w-3.5 h-3.5" />
               AI Agents
             </TabsTrigger>
+            <TabsTrigger value="outreach" data-testid="tab-outreach" className="flex items-center gap-1.5">
+              <Send className="w-3.5 h-3.5" />
+              Outreach
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -2421,6 +2426,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="agents" className="space-y-6">
             <AdminAgentHub />
+          </TabsContent>
+
+          <TabsContent value="outreach" className="space-y-6">
+            <RadioOutreachAgent />
           </TabsContent>
         </Tabs>
       </div>

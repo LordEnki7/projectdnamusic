@@ -892,3 +892,56 @@ export const fanContacts = pgTable("fan_contacts", {
 export const insertFanContactSchema = createInsertSchema(fanContacts).omit({ id: true, createdAt: true });
 export type InsertFanContact = z.infer<typeof insertFanContactSchema>;
 export type FanContact = typeof fanContacts.$inferSelect;
+
+// ─── Radio Outreach Agent ─────────────────────────────────────────────────────
+
+export const radioStations = pgTable("radio_stations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("college"), // college | b-market
+  market: text("market"), // city or region
+  state: text("state"),
+  email: text("email"),
+  website: text("website"),
+  format: text("format"), // hip-hop, r&b, urban, etc.
+  submissionNotes: text("submission_notes"),
+  acceptsUnsolicited: integer("accepts_unsolicited").default(1), // 1=yes 0=no
+  createdAt: text("created_at").notNull().default(sql`now()`),
+});
+
+export const insertRadioStationSchema = createInsertSchema(radioStations).omit({ id: true, createdAt: true });
+export type InsertRadioStation = z.infer<typeof insertRadioStationSchema>;
+export type RadioStation = typeof radioStations.$inferSelect;
+
+export const outreachCampaigns = pgTable("outreach_campaigns", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  songTitle: text("song_title").notNull(),
+  songUrl: text("song_url"),
+  artistBio: text("artist_bio"),
+  targetTypes: text("target_types").default("college,b-market"), // comma-separated
+  status: text("status").notNull().default("draft"), // draft | ready | sending | complete
+  totalSent: integer("total_sent").default(0),
+  createdAt: text("created_at").notNull().default(sql`now()`),
+  sentAt: text("sent_at"),
+});
+
+export const insertOutreachCampaignSchema = createInsertSchema(outreachCampaigns).omit({ id: true, createdAt: true, sentAt: true, totalSent: true });
+export type InsertOutreachCampaign = z.infer<typeof insertOutreachCampaignSchema>;
+export type OutreachCampaign = typeof outreachCampaigns.$inferSelect;
+
+export const outreachContacts = pgTable("outreach_contacts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campaignId: integer("campaign_id").notNull(),
+  stationId: integer("station_id").notNull(),
+  stationName: text("station_name"),
+  stationEmail: text("station_email"),
+  emailSubject: text("email_subject"),
+  emailBody: text("email_body"),
+  status: text("status").notNull().default("pending"), // pending | sent | failed
+  sentAt: text("sent_at"),
+  errorMessage: text("error_message"),
+});
+
+export const insertOutreachContactSchema = createInsertSchema(outreachContacts).omit({ id: true, sentAt: true });
+export type InsertOutreachContact = z.infer<typeof insertOutreachContactSchema>;
+export type OutreachContact = typeof outreachContacts.$inferSelect;

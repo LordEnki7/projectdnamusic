@@ -8,7 +8,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { registerAIAgentRoutes } from "./aiAgents";
-import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, radioTracks, songRequests, fanContacts, emailSequences, emailTemplates, emailEvents, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
+import { songs, beats, merchandise, cartItems, users, donations, exclusiveContent, shippingAddresses, beatLicenses, orders, orderItems, contactMessages, downloads, membershipTiers, userMemberships, playlists, playlistSongs, listeningHistory, fanWallMessages, artistMessages, userActivityEvents, contentLikes, contentComments, siteCounters, radioBumpers, radioTracks, songRequests, fanContacts, emailSequences, emailTemplates, emailEvents, radioStations, outreachCampaigns, outreachContacts, insertUserSchema, loginSchema, insertPlaylistSchema, insertPlaylistSongSchema, insertListeningHistorySchema, insertFanWallMessageSchema, insertArtistMessageSchema, insertContentLikeSchema, insertContentCommentSchema } from "@shared/schema";
 import { asc, eq, and, sql, inArray } from "drizzle-orm";
 import Stripe from "stripe";
 import bcrypt from "bcryptjs";
@@ -4809,6 +4809,219 @@ export async function registerRoutes(app: Express): Promise<Server> {
       quickLetterState.finishedAt = new Date().toISOString();
     }
     res.json({ message: 'Stopped' });
+  });
+
+  // ─── Radio Outreach Agent ────────────────────────────────────────────────────
+
+  const isAdmin = async (req: any, res: any) => {
+    if (!req.session.userId) { res.status(401).json({ error: 'Unauthorized' }); return false; }
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user || user.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return false; }
+    return true;
+  };
+
+  // GET stations
+  app.get('/api/admin/outreach/stations', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    const stations = await db.select().from(radioStations).orderBy(asc(radioStations.type), asc(radioStations.name));
+    res.json(stations);
+  });
+
+  // POST station (manual add)
+  app.post('/api/admin/outreach/stations', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    const { name, type, market, state, email, website, format, submissionNotes } = req.body;
+    if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+    const [station] = await db.insert(radioStations).values({ name, type: type || 'college', market, state, email, website, format, submissionNotes }).returning();
+    res.json(station);
+  });
+
+  // DELETE station
+  app.delete('/api/admin/outreach/stations/:id', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    await db.delete(radioStations).where(eq(radioStations.id, parseInt(req.params.id)));
+    res.json({ success: true });
+  });
+
+  // POST research — use OpenAI to generate a list of real stations
+  app.post('/api/admin/outreach/research', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    try {
+      const { openai } = await import('./replit_integrations/audio/client');
+      const { type = 'both' } = req.body;
+
+      const prompt = `You are a music industry researcher. Generate a list of 20 real radio stations that are known to accept unsolicited music submissions from independent hip-hop and R&B artists.
+${type === 'college' ? 'Focus on college radio stations only.' : type === 'b-market' ? 'Focus on B-market (mid-size city) commercial urban radio stations only.' : 'Mix of college radio stations (10) and B-market commercial urban radio stations (10).'}
+
+For each station provide:
+- name: station name (e.g. "WBMX 98.5")
+- type: "college" or "b-market"
+- market: city name
+- state: 2-letter state code
+- email: music director submission email (real if known, otherwise format like md@[callletters].com)
+- website: station website
+- format: their music format (e.g. "Hip-Hop & R&B", "Urban", "College Urban")
+- submissionNotes: any known submission requirements
+
+Return ONLY a JSON array, no markdown, no explanation.`;
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+      });
+
+      const raw = completion.choices[0].message.content || '{"stations":[]}';
+      const parsed = JSON.parse(raw);
+      const list: any[] = Array.isArray(parsed) ? parsed : (parsed.stations || []);
+
+      let added = 0;
+      for (const s of list) {
+        if (!s.name || !s.email) continue;
+        const existing = await db.select().from(radioStations).where(eq(radioStations.email, s.email)).limit(1);
+        if (existing.length > 0) continue;
+        await db.insert(radioStations).values({
+          name: s.name, type: s.type || 'college', market: s.market, state: s.state,
+          email: s.email, website: s.website, format: s.format, submissionNotes: s.submissionNotes,
+        });
+        added++;
+      }
+      res.json({ message: `Research complete. Added ${added} new stations.`, added });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET campaigns
+  app.get('/api/admin/outreach/campaigns', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    const campaigns = await db.select().from(outreachCampaigns).orderBy(asc(outreachCampaigns.id));
+    res.json(campaigns);
+  });
+
+  // POST create campaign
+  app.post('/api/admin/outreach/campaigns', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    const { songTitle, songUrl, artistBio, targetTypes } = req.body;
+    if (!songTitle) return res.status(400).json({ error: 'Song title is required' });
+    const [campaign] = await db.insert(outreachCampaigns).values({
+      songTitle, songUrl, artistBio, targetTypes: targetTypes || 'college,b-market', status: 'draft',
+    }).returning();
+    res.json(campaign);
+  });
+
+  // POST prepare — generate personalized email for every matching station
+  app.post('/api/admin/outreach/campaigns/:id/prepare', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    const campaignId = parseInt(req.params.id);
+    const [campaign] = await db.select().from(outreachCampaigns).where(eq(outreachCampaigns.id, campaignId)).limit(1);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    const types = (campaign.targetTypes || 'college,b-market').split(',').map((t: string) => t.trim());
+    const stations = await db.select().from(radioStations).where(
+      and(eq(radioStations.acceptsUnsolicited, 1), inArray(radioStations.type, types))
+    );
+    if (stations.length === 0) return res.status(400).json({ error: 'No stations found. Run Research first to build your station list.' });
+
+    // Delete any existing pending contacts for this campaign
+    await db.delete(outreachContacts).where(and(eq(outreachContacts.campaignId, campaignId), eq(outreachContacts.status, 'pending')));
+
+    try {
+      const { openai } = await import('./replit_integrations/audio/client');
+      let prepared = 0;
+
+      for (const station of stations) {
+        const prompt = `Write a professional, concise music submission email from Shakim of Project DNA Music LLC pitching their single "${campaign.songTitle}" to ${station.name} in ${station.market || 'their market'}.
+
+Artist bio: ${campaign.artistBio || 'Shakim is an independent hip-hop and R&B artist from Project DNA Music LLC creating soulful, high-energy music.'}
+Song link: ${campaign.songUrl || 'Available on request'}
+Station format: ${station.format || 'Urban/Hip-Hop'}
+Station type: ${station.type === 'college' ? 'College Radio' : 'Commercial Urban Radio'}
+
+Requirements:
+- Subject line and email body only
+- Professional but personable tone  
+- Mention the station by name
+- Keep under 200 words
+- End with contact info: support@projectdnamusic.info
+
+Return JSON: { "subject": "...", "body": "..." }`;
+
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+        });
+
+        const raw = completion.choices[0].message.content || '{}';
+        const email = JSON.parse(raw);
+
+        await db.insert(outreachContacts).values({
+          campaignId, stationId: station.id, stationName: station.name,
+          stationEmail: station.email, emailSubject: email.subject, emailBody: email.body, status: 'pending',
+        });
+        prepared++;
+      }
+
+      await db.update(outreachCampaigns).set({ status: 'ready' }).where(eq(outreachCampaigns.id, campaignId));
+      res.json({ message: `Prepared ${prepared} personalized emails. Review and confirm to send.`, prepared });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET contacts for a campaign
+  app.get('/api/admin/outreach/campaigns/:id/contacts', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    const contacts = await db.select().from(outreachContacts)
+      .where(eq(outreachContacts.campaignId, parseInt(req.params.id)))
+      .orderBy(asc(outreachContacts.id));
+    res.json(contacts);
+  });
+
+  // POST confirm & send
+  app.post('/api/admin/outreach/campaigns/:id/confirm', async (req, res) => {
+    if (!await isAdmin(req, res)) return;
+    const campaignId = parseInt(req.params.id);
+    const [campaign] = await db.select().from(outreachCampaigns).where(eq(outreachCampaigns.id, campaignId)).limit(1);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    const pending = await db.select().from(outreachContacts)
+      .where(and(eq(outreachContacts.campaignId, campaignId), eq(outreachContacts.status, 'pending')));
+    if (pending.length === 0) return res.status(400).json({ error: 'No pending emails. Prepare the campaign first.' });
+
+    try {
+      const { getResendClient } = await import('./email');
+      const { client: resend, fromEmail } = await getResendClient();
+
+      let sent = 0, failed = 0;
+      for (const contact of pending) {
+        if (!contact.stationEmail) { failed++; continue; }
+        try {
+          await resend.emails.send({
+            from: fromEmail,
+            to: contact.stationEmail,
+            subject: contact.emailSubject || `Music Submission: ${campaign.songTitle}`,
+            text: contact.emailBody || '',
+          });
+          await db.update(outreachContacts).set({ status: 'sent', sentAt: new Date().toISOString() })
+            .where(eq(outreachContacts.id, contact.id));
+          sent++;
+        } catch (err: any) {
+          await db.update(outreachContacts).set({ status: 'failed', errorMessage: err.message })
+            .where(eq(outreachContacts.id, contact.id));
+          failed++;
+        }
+      }
+
+      await db.update(outreachCampaigns).set({
+        status: 'complete', totalSent: sent, sentAt: new Date().toISOString(),
+      }).where(eq(outreachCampaigns.id, campaignId));
+
+      res.json({ message: `Campaign sent. ${sent} delivered, ${failed} failed.`, sent, failed });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   registerAIAgentRoutes(app);
