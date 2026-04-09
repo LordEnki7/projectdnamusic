@@ -395,7 +395,16 @@ async function seedProductionDatabase() {
           log(`Radio: fixed bumper URL id=${bumper.id} → ${fixedUrl}`);
         }
       }
-      log(`Radio: ${existingBumpers.length} bumper(s) already in DB — URLs verified`);
+      // Insert any new bumpers added to seed list that aren't in the DB yet
+      const existingUrls = new Set(existingBumpers.map(b => b.audioUrl));
+      for (const seedBumper of radioBumpersData) {
+        if (!existingUrls.has(seedBumper.audioUrl)) {
+          await db.insert(radioBumpers).values({ title: seedBumper.title, audioUrl: seedBumper.audioUrl, isActive: 1 });
+          log(`Radio: added new bumper "${seedBumper.title}"`);
+        }
+      }
+      const finalCount = await db.select().from(radioBumpers);
+      log(`Radio: ${finalCount.length} bumper(s) in DB — URLs verified`);
     }
   } catch (err: any) {
     log(`Radio bumper seed error: ${err.message}`);

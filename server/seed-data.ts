@@ -158,4 +158,5 @@ export const radioBumpersData = [
   { title: "Project DNA Drop 6", audioUrl: "/media/bumpers/Project_DNA_drop_6_01_1775672689718.mp3" },
   { title: "Project DNA Drop 7", audioUrl: "/media/bumpers/Project_DNA_drop_7_01_1775672689719.mp3" },
   { title: "Project DNA Drop 8", audioUrl: "/media/bumpers/Project_DNA_drop_8_01_1775672689719.mp3" },
+  { title: "The Clarity Code Commercial", audioUrl: "/media/bumpers/THE_CLARITY_CODE_COMMERCIAL_RADIO_04092026_1775746397347.mp3" },
 ];
