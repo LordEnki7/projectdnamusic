@@ -291,6 +291,8 @@ function DNARadioPlayer() {
 
     const onError = () => {
       if (!connectedRef.current) return;
+      // Ignore errors during bumper slot reset (audio.src = '' fires an error)
+      if (isBumperRef.current) return;
       setIsBuffering(false);
       // Wait 2s then retry
       setTimeout(() => { if (connectedRef.current) syncToStation(); }, 2000);
