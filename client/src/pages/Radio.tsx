@@ -197,6 +197,8 @@ function DNARadioPlayer() {
       clearLoadGuard();
       audio.removeEventListener('canplay', startPlay);
       if (!connectedRef.current) return;
+      // Ignore the spurious error fired by audio.src = '' during bumper reset
+      if (isBumperRef.current) return;
       console.warn('Radio: audio error on', audioUrl, '— skipping slot');
       setIsBuffering(false);
       const elapsed = (Date.now() - fetchStart) / 1000;

@@ -80,11 +80,12 @@ The design adopts a futuristic, sci-fi aesthetic with cosmic energy, DNA strands
 1. **Stale closure** — `isBumperRef` (a ref, not state) must be used inside `onEnded` to check whether a bumper is playing. Using state causes stale closure reads.
 2. **Race condition** — `isSyncingRef` lock prevents two `syncToStation()` calls running concurrently. Slot timer is cleared BEFORE the async fetch, not after.
 3. **`canplay` not firing** — After a song ends, the browser won't reliably fire `canplay` on the same element when a new src is set. Fix: do `audio.src = ''` then `audio.load()` first to fully reset it before loading the bumper.
-4. **Error handler double-trigger** — Setting `audio.src = ''` fires an `error` event. The `onError` handler MUST check `isBumperRef.current` and return early, otherwise it schedules another `syncToStation()` that loads a song on top of the bumper 2 seconds later.
+4. **Error handler double-trigger (permanent handler)** — Setting `audio.src = ''` fires an `error` event. The permanent `onError` handler MUST check `isBumperRef.current` and return early, otherwise it schedules another `syncToStation()` that loads a song on top of the bumper 2 seconds later.
+5. **Error handler double-trigger (one-time handler inside syncToStation)** — `syncToStation()` adds a one-time `onAudioError` listener for the `error` event. The browser queues the error from `audio.src = ''` asynchronously, so it fires AFTER this listener is registered, meaning `onAudioError` also fires and schedules a second `syncToStation()`. Fix: `onAudioError` MUST also check `if (isBumperRef.current) return;` as its first guard after the `connectedRef` check. Both error handlers need the `isBumperRef` guard — missing it from either one causes double bumper playback.
 
 **Policy: if bumpers are working, only touch the specific thing that is broken. Do not refactor the audio architecture.**
 
-**Bumper files** are in `client/public/media/bumpers/` as `Project_DNA_drop_1` through `Project_DNA_drop_8`. The DB seed auto-corrects any old filenames on server startup.
+**Bumper files** are in `client/public/media/bumpers/` as `Project_DNA_drop_1` through `Project_DNA_drop_8` plus `THE_CLARITY_CODE_COMMERCIAL_RADIO_04092026_1775746397347.mp3`. The DB seed auto-corrects any old filenames and inserts any new bumpers on server startup.
 
 ## External Dependencies
 
