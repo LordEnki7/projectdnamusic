@@ -7,8 +7,8 @@ import { sendOrderConfirmationEmail } from "./email";
 import { Resend } from "resend";
 
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined,
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
 });
 
 async function getResendClient() {
@@ -164,7 +164,7 @@ export async function runAdvisorScanJob(triggeredBy: "user" | "system" = "user")
     };
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
@@ -299,7 +299,7 @@ export function registerAIAgentRoutes(app: Express) {
         : `Merchandise: "${product.title}" | ${product.description} | Price: $${product.price}`;
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "llama-3.3-70b-versatile",
         messages: [
           {
             role: "system",
@@ -392,7 +392,7 @@ Return a JSON object with exactly these fields:
       };
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "llama-3.3-70b-versatile",
         messages: [
           {
             role: "system",
@@ -444,7 +444,7 @@ Return a JSON object with exactly these fields:
 
       // Generate email with AI
       const completion = await openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "llama-3.3-70b-versatile",
         messages: [
           {
             role: "system",
@@ -533,7 +533,7 @@ Return a JSON object with exactly these fields:
       };
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "llama-3.3-70b-versatile",
         messages: [
           {
             role: "system",
@@ -641,7 +641,7 @@ Return a JSON object with exactly these fields:
         };
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-5-mini",
+          model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",
@@ -795,7 +795,7 @@ Priority: critical=90-100, high=70-89, medium=40-69, low=1-39. qualityScore: 1-4
         : [];
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "llama-3.3-70b-versatile",
         messages: [
           {
             role: "system",
@@ -1063,7 +1063,7 @@ RECOMMENDED NEXT STEPS
         };
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-5-mini",
+          model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",
@@ -1182,7 +1182,7 @@ Priority: high=70-89, medium=40-69. qualityScore: 1-4=generic, 5-7=specific play
         };
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-5-mini",
+          model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",
@@ -1305,7 +1305,7 @@ Priority: high=70-89, medium=40-69. qualityScore: 1-4=vague deal type, 5-7=speci
         };
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-5-mini",
+          model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",

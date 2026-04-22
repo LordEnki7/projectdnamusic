@@ -13,7 +13,10 @@ import {
 import { eq, desc, sql, and, lt } from "drizzle-orm";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
+});
 
 const now = () => new Date().toISOString();
 
@@ -44,7 +47,7 @@ async function logInteraction(fanId: string, type: string, channel: string, dire
 
 async function callOpenAI(prompt: string): Promise<string> {
   const res = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "llama-3.3-70b-versatile",
     messages: [{ role: "user", content: prompt }],
     response_format: { type: "json_object" },
     max_tokens: 1500,

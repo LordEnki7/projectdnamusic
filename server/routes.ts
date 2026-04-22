@@ -4845,11 +4845,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
-  // POST research — use OpenAI to generate a list of real stations
+  // POST research — use Groq to generate a list of real stations
   app.post('/api/admin/outreach/research', async (req, res) => {
     if (!await isAdmin(req, res)) return;
     try {
-      const { openai } = await import('./replit_integrations/audio/client');
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
       const { type = 'both' } = req.body;
 
       const prompt = `You are a music industry researcher. Generate a list of 20 real radio stations that are known to accept unsolicited music submissions from independent hip-hop and R&B artists.
@@ -4868,7 +4869,7 @@ For each station provide:
 Return ONLY a JSON array, no markdown, no explanation.`;
 
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },
       });
@@ -4929,7 +4930,8 @@ Return ONLY a JSON array, no markdown, no explanation.`;
     await db.delete(outreachContacts).where(and(eq(outreachContacts.campaignId, campaignId), eq(outreachContacts.status, 'pending')));
 
     try {
-      const { openai } = await import('./replit_integrations/audio/client');
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
       let prepared = 0;
 
       for (const station of stations) {
@@ -4950,7 +4952,7 @@ Requirements:
 Return JSON: { "subject": "...", "body": "..." }`;
 
         const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: 'llama-3.1-8b-instant',
           messages: [{ role: 'user', content: prompt }],
           response_format: { type: 'json_object' },
         });
