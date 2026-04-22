@@ -4845,12 +4845,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
-  // POST research — use Groq to generate a list of real stations
+  // POST research — use AI (with fallback) to generate a list of real stations
   app.post('/api/admin/outreach/research', async (req, res) => {
     if (!await isAdmin(req, res)) return;
     try {
-      const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
+      const { aiCompleteJSON } = await import('./aiClient');
       const { type = 'both' } = req.body;
 
       const prompt = `You are a music industry researcher. Generate a list of 20 real radio stations that are known to accept unsolicited music submissions from independent hip-hop and R&B artists.
@@ -4868,14 +4867,11 @@ For each station provide:
 
 Return ONLY a JSON array, no markdown, no explanation.`;
 
-      const completion = await openai.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+      const parsed = await aiCompleteJSON({
+        model: 'powerful',
         messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
+        maxTokens: 3000,
       });
-
-      const raw = completion.choices[0].message.content || '{"stations":[]}';
-      const parsed = JSON.parse(raw);
       const list: any[] = Array.isArray(parsed) ? parsed : (parsed.stations || []);
 
       let added = 0;
@@ -4930,8 +4926,7 @@ Return ONLY a JSON array, no markdown, no explanation.`;
     await db.delete(outreachContacts).where(and(eq(outreachContacts.campaignId, campaignId), eq(outreachContacts.status, 'pending')));
 
     try {
-      const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
+      const { aiCompleteJSON } = await import('./aiClient');
       let prepared = 0;
 
       for (const station of stations) {
@@ -4951,14 +4946,11 @@ Requirements:
 
 Return JSON: { "subject": "...", "body": "..." }`;
 
-        const completion = await openai.chat.completions.create({
-          model: 'llama-3.1-8b-instant',
+        const email = await aiCompleteJSON({
+          model: 'fast',
           messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' },
+          maxTokens: 600,
         });
-
-        const raw = completion.choices[0].message.content || '{}';
-        const email = JSON.parse(raw);
 
         await db.insert(outreachContacts).values({
           campaignId, stationId: station.id, stationName: station.name,

@@ -11,12 +11,7 @@ import {
   fanContacts
 } from "@shared/schema";
 import { eq, desc, sql, and, lt } from "drizzle-orm";
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
+import { aiComplete, aiCompleteJSON } from "./aiClient";
 
 const now = () => new Date().toISOString();
 
@@ -46,13 +41,12 @@ async function logInteraction(fanId: string, type: string, channel: string, dire
 }
 
 async function callOpenAI(prompt: string): Promise<string> {
-  const res = await openai.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+  return aiComplete({
+    model: "powerful",
     messages: [{ role: "user", content: prompt }],
-    response_format: { type: "json_object" },
-    max_tokens: 1500,
+    jsonMode: true,
+    maxTokens: 1500,
   });
-  return res.choices[0].message.content ?? "{}";
 }
 
 // ─── AGENT 1: Traffic Scout ────────────────────────────────────────────────────

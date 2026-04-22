@@ -1,15 +1,28 @@
 import type { Express } from "express";
-import OpenAI from "openai";
 import { db } from "./db";
 import { songs, beats, merchandise, orders, orderItems, users, agentProposals, agentJobs, agentRuns, agentMemory, agentApprovals } from "@shared/schema";
 import { desc, sql, eq, asc, lt } from "drizzle-orm";
 import { sendOrderConfirmationEmail } from "./email";
 import { Resend } from "resend";
+import { aiComplete } from "./aiClient";
 
-const openai = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
+// Drop-in compatibility wrapper — all existing openai.chat.completions.create() calls
+// are transparently routed through the Groq → OpenAI fallback chain.
+const openai = {
+  chat: {
+    completions: {
+      create: async (params: { messages: any[]; response_format?: { type: string }; max_tokens?: number; [k: string]: any }) => {
+        const content = await aiComplete({
+          messages: params.messages,
+          model: "powerful",
+          jsonMode: params.response_format?.type === "json_object",
+          maxTokens: params.max_tokens ?? 2000,
+        });
+        return { choices: [{ message: { content } }] };
+      },
+    },
+  },
+};
 
 async function getResendClient() {
   if (process.env.RESEND_API_KEY) {
