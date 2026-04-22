@@ -159,4 +159,10 @@ export const radioBumpersData = [
   { title: "Project DNA Drop 7", audioUrl: "/media/bumpers/Project_DNA_drop_7_01_1775672689719.mp3", duration: null },
   { title: "Project DNA Drop 8", audioUrl: "/media/bumpers/Project_DNA_drop_8_01_1775672689719.mp3", duration: null },
   { title: "The Clarity Code Commercial", audioUrl: "/media/bumpers/THE_CLARITY_CODE_COMMERCIAL_RADIO_04092026_1775746397347.mp3", duration: 122 },
+  { title: "Caren Drop (Spanish)", audioUrl: "/media/bumpers/caren_drop_spanish_1776872030014.mp3", duration: 67 },
+  { title: "DNA Radio Promo 1", audioUrl: "/media/bumpers/promo_audios_1776872030015.mp3", duration: 52 },
+  { title: "DNA Radio Promo 2", audioUrl: "/media/bumpers/promo2_audios_1776872030015.mp3", duration: 22 },
+  { title: "DNA Radio Promo 3", audioUrl: "/media/bumpers/promo3_audios_1776872030016.mp3", duration: 15 },
+  { title: "DNA Radio Promo 4", audioUrl: "/media/bumpers/promo4_audios_1776872030017.mp3", duration: 27 },
+  { title: "DNA Radio Promo 5 (Spanish)", audioUrl: "/media/bumpers/promo5_SP_audios_1776872030017.mp3", duration: 68 },
 ];
